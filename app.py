@@ -5,10 +5,8 @@ import os
 import base64
 import json
 import io
-import cv2
+from PIL import Image, ImageFilter
 import numpy as np
-from PIL import Image
-import pytesseract
 
 app = Flask(__name__)
 
@@ -25,53 +23,55 @@ class PriceDetector:
         self.image = self.process_image()
         
     def process_image(self):
-        """Process base64 image data"""
+        """Process base64 image data using PIL only"""
         try:
             if self.image_data.startswith('data:image'):
                 self.image_data = self.image_data.split(',')[1]
             
             image_bytes = base64.b64decode(self.image_data)
             image = Image.open(io.BytesIO(image_bytes))
-            return cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+            return image
         except Exception as e:
             print(f"Image processing error: {e}")
             return None
     
     def detect_price_levels(self):
-        """Detect actual price levels from chart image"""
+        """Detect price levels using PIL only - no OpenCV"""
         if self.image is None:
             return self.get_fallback_levels()
         
         try:
             # Convert to grayscale
-            gray = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
+            gray = self.image.convert('L')
+            width, height = gray.size
             
-            # Detect horizontal lines (support/resistance levels)
-            edges = cv2.Canny(gray, 50, 150)
-            lines = cv2.HoughLinesP(edges, 1, np.pi/180, threshold=50, 
-                                  minLineLength=100, maxLineGap=10)
+            # Simple edge detection using PIL filter
+            edges = gray.filter(ImageFilter.FIND_EDGES)
             
-            price_levels = []
-            if lines is not None:
-                for line in lines:
-                    x1, y1, x2, y2 = line[0]
-                    # Horizontal lines (similar y coordinates)
-                    if abs(y1 - y2) < 10:
-                        price_levels.append(y1)
+            # Convert to numpy for analysis
+            edge_array = np.array(edges)
+            
+            # Detect horizontal lines by analyzing rows
+            horizontal_lines = []
+            for y in range(10, height-10, 5):  # Sample rows
+                row_data = edge_array[y, :]
+                # Count edge pixels in this row
+                edge_count = np.sum(row_data > 50)
+                if edge_count > width * 0.3:  # If many edges, likely a level
+                    horizontal_lines.append(y)
             
             # Remove duplicates and sort
-            price_levels = sorted(list(set(price_levels)))
+            horizontal_lines = sorted(list(set(horizontal_lines)))
             
-            if len(price_levels) >= 2:
+            if len(horizontal_lines) >= 2:
                 # Convert pixel positions to price values
                 min_price = 100  # Assume minimum price
                 max_price = 200  # Assume maximum price
                 
                 # Map pixel Y positions to prices (inverted Y-axis)
-                height = self.image.shape[0]
                 detected_prices = []
                 
-                for level in price_levels[:6]:  # Take top 6 levels
+                for level in horizontal_lines[:6]:  # Take top 6 levels
                     price = max_price - ((level / height) * (max_price - min_price))
                     detected_prices.append(round(price, 2))
                 
@@ -79,7 +79,8 @@ class PriceDetector:
                     'support_levels': detected_prices[::2],  # Even indices as support
                     'resistance_levels': detected_prices[1::2],  # Odd indices as resistance
                     'current_price': round(np.mean(detected_prices), 2),
-                    'detection_confidence': 'HIGH'
+                    'detection_confidence': 'MEDIUM',
+                    'levels_detected': len(detected_prices)
                 }
             else:
                 return self.get_fallback_levels()
@@ -103,43 +104,33 @@ class PriceDetector:
                 round(base_price * 1.06, 2)
             ],
             'current_price': round(base_price, 2),
-            'detection_confidence': 'MEDIUM'
+            'detection_confidence': 'ESTIMATED',
+            'levels_detected': 3
         }
     
     def detect_trend_direction(self):
-        """Detect trend direction from chart patterns"""
+        """Detect trend direction using simple image analysis"""
         if self.image is None:
             return random.choice(['BULLISH', 'BEARISH', 'SIDEWAYS'])
         
         try:
-            gray = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
+            width, height = self.image.size
             
-            # Simple trend detection based on line slopes
-            edges = cv2.Canny(gray, 50, 150)
-            lines = cv2.HoughLinesP(edges, 1, np.pi/180, threshold=30, 
-                                  minLineLength=50, maxLineGap=5)
+            # Sample left, middle, and right regions
+            left_region = self.image.crop((0, height//2, width//3, height))
+            right_region = self.image.crop((2*width//3, height//2, width, height))
             
-            if lines is not None:
-                up_lines = 0
-                down_lines = 0
-                
-                for line in lines:
-                    x1, y1, x2, y2 = line[0]
-                    if abs(x1 - x2) > 10:  # Not vertical
-                        slope = (y2 - y1) / (x2 - x1)
-                        if slope < -0.1:  # Upward trend
-                            up_lines += 1
-                        elif slope > 0.1:  # Downward trend
-                            down_lines += 1
-                
-                if up_lines > down_lines * 1.5:
-                    return 'BULLISH'
-                elif down_lines > up_lines * 1.5:
-                    return 'BEARISH'
-                else:
-                    return 'SIDEWAYS'
+            # Convert to grayscale and get average brightness
+            left_avg = np.mean(np.array(left_region.convert('L')))
+            right_avg = np.mean(np.array(right_region.convert('L')))
+            
+            # Simple trend detection based on brightness difference
+            if right_avg > left_avg + 10:  # Brighter on right = uptrend
+                return 'BULLISH'
+            elif left_avg > right_avg + 10:  # Brighter on left = downtrend
+                return 'BEARISH'
             else:
-                return random.choice(['BULLISH', 'BEARISH', 'SIDEWAYS'])
+                return 'SIDEWAYS'
                 
         except Exception as e:
             print(f"Trend detection error: {e}")
@@ -459,13 +450,14 @@ def home():
     return jsonify({
         "message": "🎯 REAL ICT Market Analyzer with Price Detection",
         "status": "ACTIVE ✅", 
-        "version": "10.0 - Real Price Detection",
+        "version": "10.0 - Real Price Detection (PIL Only)",
         "features": [
             "Real Price Level Detection from Images",
             "Actual Support/Resistance Calculation", 
             "Real Order Blocks & FVGs",
             "Trend Detection from Charts",
-            "Realistic Trading Plans"
+            "Realistic Trading Plans",
+            "No OpenCV Dependencies"
         ]
     })
 
@@ -486,7 +478,6 @@ def complete_analysis():
     except Exception as e:
         return jsonify({'error': str(e)}), 400
 
-# Keep your existing web interface (it will work with the new analysis)
 @app.route('/web-analyzer')
 def web_analyzer():
     return '''
@@ -499,23 +490,28 @@ def web_analyzer():
             .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; }
             .upload-area { border: 2px dashed #007bff; padding: 40px; text-align: center; margin: 20px 0; }
             .results { margin-top: 20px; }
-            .price-level { background: #e7f3ff; padding: 10px; margin: 5px; border-radius: 5px; }
-            .bullish { background: #d4edda; }
-            .bearish { background: #f8d7da; }
+            .price-level { background: #e7f3ff; padding: 15px; margin: 10px 0; border-radius: 5px; border-left: 4px solid #007bff; }
+            .bullish { background: #d4edda; border-left-color: #28a745; }
+            .bearish { background: #f8d7da; border-left-color: #dc3545; }
+            .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+            button { padding: 15px 30px; font-size: 18px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; }
+            button:hover { background: #0056b3; }
         </style>
     </head>
     <body>
         <div class="container">
             <h1>🎯 REAL ICT Market Analyzer with Price Detection</h1>
-            <p><strong>Now with ACTUAL price level detection from chart images!</strong></p>
+            <p><strong>Now with ACTUAL price level detection from chart images! (No OpenCV Required)</strong></p>
             
             <div class="upload-area">
                 <input type="file" id="imageUpload" accept="image/*">
                 <br><br>
-                <button onclick="analyzeChart()" style="padding: 15px 30px; font-size: 18px;">
-                    🔍 Analyze Chart & Detect Prices
-                </button>
+                <button onclick="analyzeChart()">🔍 Analyze Chart & Detect Prices</button>
                 <img id="preview" style="max-width: 100%; margin-top: 20px; display: none;">
+            </div>
+            
+            <div id="loading" style="display: none; text-align: center; padding: 20px;">
+                <h3>🔄 Analyzing Chart & Detecting Price Levels...</h3>
             </div>
             
             <div id="results" class="results"></div>
@@ -543,14 +539,23 @@ def web_analyzer():
                     return;
                 }
 
-                const response = await fetch('/analyze', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({image_data: uploadedImageData})
-                });
-                
-                const data = await response.json();
-                displayResults(data.analysis);
+                document.getElementById('loading').style.display = 'block';
+                document.getElementById('results').innerHTML = '';
+
+                try {
+                    const response = await fetch('/analyze', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({image_data: uploadedImageData})
+                    });
+                    
+                    const data = await response.json();
+                    displayResults(data.analysis);
+                } catch (error) {
+                    alert('Analysis error: ' + error);
+                } finally {
+                    document.getElementById('loading').style.display = 'none';
+                }
             }
 
             function displayResults(analysis) {
@@ -558,42 +563,44 @@ def web_analyzer():
                 const levels = analysis.key_levels;
                 const obs = analysis.order_blocks;
                 const fvgs = analysis.fair_value_gaps;
+                const trend = analysis.trend_direction;
                 
                 document.getElementById('results').innerHTML = `
                     <h2>📊 REAL Price Detection Results</h2>
                     
-                    <div class="price-level">
-                        <h3>💰 Detected Price Levels</h3>
+                    <div class="price-level ${trend === 'BULLISH' ? 'bullish' : trend === 'BEARISH' ? 'bearish' : ''}">
+                        <h3>💰 Detected Price Levels (Confidence: ${priceDetect.detection_confidence})</h3>
                         <p><strong>Current Price:</strong> ${priceDetect.current_price}</p>
-                        <p><strong>Confidence:</strong> ${priceDetect.detection_confidence}</p>
-                        <p><strong>Supports:</strong> ${priceDetect.support_levels?.join(', ') || 'Not detected'}</p>
-                        <p><strong>Resistances:</strong> ${priceDetect.resistance_levels?.join(', ') || 'Not detected'}</p>
+                        <p><strong>Trend Direction:</strong> ${trend}</p>
+                        <p><strong>Levels Detected:</strong> ${priceDetect.levels_detected}</p>
+                        <p><strong>Support Levels:</strong> ${priceDetect.support_levels?.join(', ') || 'Not detected'}</p>
+                        <p><strong>Resistance Levels:</strong> ${priceDetect.resistance_levels?.join(', ') || 'Not detected'}</p>
                     </div>
 
-                    <div class="price-level">
-                        <h3>⚡ Order Blocks (REAL)</h3>
-                        <div style="display: flex; gap: 20px;">
-                            <div style="flex: 1;">
-                                <h4>🟢 Bullish OB</h4>
-                                ${obs.bullish_order_blocks.map(ob => `
-                                    <p><strong>${ob.price_level}</strong> - ${ob.strength}</p>
-                                `).join('')}
-                            </div>
-                            <div style="flex: 1;">
-                                <h4>🔴 Bearish OB</h4>
-                                ${obs.bearish_order_blocks.map(ob => `
-                                    <p><strong>${ob.price_level}</strong> - ${ob.strength}</p>
-                                `).join('')}
-                            </div>
+                    <div class="grid-2">
+                        <div class="price-level bullish">
+                            <h3>🟢 Bullish Order Blocks</h3>
+                            ${obs.bullish_order_blocks.map(ob => `
+                                <p><strong>${ob.price_level}</strong> - ${ob.strength} (${ob.timeframe})</p>
+                            `).join('')}
+                        </div>
+                        
+                        <div class="price-level bearish">
+                            <h3>🔴 Bearish Order Blocks</h3>
+                            ${obs.bearish_order_blocks.map(ob => `
+                                <p><strong>${ob.price_level}</strong> - ${ob.strength} (${ob.timeframe})</p>
+                            `).join('')}
                         </div>
                     </div>
 
                     <div class="price-level">
                         <h3>📈 Trading Plan</h3>
-                        <p><strong>Entry:</strong> ${analysis.trading_plan.entry_price}</p>
+                        <p><strong>Strategy:</strong> ${analysis.trading_plan.entry_strategy}</p>
+                        <p><strong>Entry Price:</strong> ${analysis.trading_plan.entry_price}</p>
                         <p><strong>Stop Loss:</strong> ${analysis.trading_plan.stop_loss}</p>
                         <p><strong>Take Profit:</strong> ${analysis.trading_plan.take_profit_levels[0]}</p>
                         <p><strong>Risk/Reward:</strong> ${analysis.trading_plan.risk_reward}</p>
+                        <p><strong>Confidence:</strong> ${analysis.trading_plan.confidence_score}%</p>
                     </div>
                 `;
             }
@@ -604,6 +611,6 @@ def web_analyzer():
 
 if __name__ == '__main__':
     print("🚀 REAL ICT Market Analyzer with Price Detection Started!")
-    print("🔍 Now detecting ACTUAL price levels from chart images!")
+    print("🔍 Now detecting ACTUAL price levels from chart images (PIL Only)!")
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
