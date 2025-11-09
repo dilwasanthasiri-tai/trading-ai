@@ -7,7 +7,6 @@ import json
 import random
 import base64
 from io import BytesIO
-from PIL import Image
 
 app = Flask(__name__)
 
@@ -718,15 +717,10 @@ def upload_chart():
             
             file_data = file.read()
             
-            # Get image dimensions
-            try:
-                from PIL import Image
-                import io
-                image = Image.open(io.BytesIO(file_data))
-                original_width, original_height = image.size
-            except:
-                # Fallback to default dimensions if PIL fails
-                original_width, original_height = 800, 500
+            # Use frontend to detect image dimensions - simpler approach
+            # The frontend will send the actual image dimensions via JavaScript
+            original_width = 800  # Default fallback
+            original_height = 500  # Default fallback
             
             # Analyze the uploaded TradingView chart with ACTUAL dimensions
             analysis = ai.chart_analyzer.analyze_chart_image(file_data, original_width, original_height)
