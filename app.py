@@ -517,9 +517,13 @@ def web_draw():
                 const candle1 = fvg.candle1;
                 const candle3 = fvg.candle3;
                 
-                // Calculate scaling factors based on ORIGINAL image size from backend
-                const scaleX = canvas.width / originalImageWidth;
-                const scaleY = canvas.height / originalImageHeight;
+                // Get the ACTUAL displayed image dimensions (after canvas resizing)
+                const displayedWidth = canvas.width;
+                const displayedHeight = canvas.height;
+                
+                // Calculate scaling factors based on DISPLAYED image size
+                const scaleX = displayedWidth / originalImageWidth;
+                const scaleY = displayedHeight / originalImageHeight;
                 
                 if (fvg.type === 'fvg_bullish') {
                     // Bullish FVG: Candle1 high < Candle3 low (gap between them)
@@ -578,9 +582,13 @@ def web_draw():
             function drawTradingViewOrderBlock(ob) {
                 const candle = ob.candle;
                 
-                // Calculate scaling factors based on ORIGINAL image size from backend
-                const scaleX = canvas.width / originalImageWidth;
-                const scaleY = canvas.height / originalImageHeight;
+                // Get the ACTUAL displayed image dimensions (after canvas resizing)
+                const displayedWidth = canvas.width;
+                const displayedHeight = canvas.height;
+                
+                // Calculate scaling factors based on DISPLAYED image size
+                const scaleX = displayedWidth / originalImageWidth;
+                const scaleY = displayedHeight / originalImageHeight;
                 
                 const x = candle.x * scaleX;
                 const high = candle.high * scaleY;
@@ -670,14 +678,15 @@ def web_draw():
                                     <p><strong>Market Structure:</strong> ${data.analysis.ict_concepts.market_structure}</p>
                                 </div>
                                 <div>
-                                    <h4>📊 TradingView Analysis</h4>
+                                    <h4>📊 Image Information</h4>
+                                    <p><strong>Original Size:</strong> ${originalImageWidth} × ${originalImageHeight}</p>
+                                    <p><strong>Displayed Size:</strong> ${canvas.width} × ${canvas.height}</p>
                                     <p><strong>Sentiment:</strong> ${data.analysis.sentiment}</p>
                                     <p><strong>Confidence:</strong> ${(data.analysis.confidence_score * 100).toFixed(1)}%</p>
-                                    <p><strong>Image Size:</strong> ${originalImageWidth} × ${originalImageHeight}</p>
                                 </div>
                             </div>
                             <p><strong>Detection:</strong> ${fvgCount} FVG patterns detected in ACTUAL TradingView chart positions</p>
-                            <p><strong>Note:</strong> FVGs drawn between real candle locations in your uploaded chart</p>
+                            <p><strong>Note:</strong> Patterns automatically scaled from ${originalImageWidth}×${originalImageHeight} to ${canvas.width}×${canvas.height}</p>
                         `;
                     } else {
                         resultDiv.innerHTML = `<h3>❌ Error:</h3><p>${data.error}</p>`;
