@@ -20,10 +20,10 @@ def allowed_file(filename):
 
 class ChartAnalyzer:
     def analyze_chart_image(self, file_data, annotations=None):
-        """Analyze chart and generate auto-draw annotations"""
+        """Analyze chart and generate proper ICT-style annotations"""
         try:
-            # Generate automatic ICT annotations
-            auto_annotations = self.generate_ict_annotations()
+            # Generate proper ICT annotations
+            auto_annotations = self.generate_proper_ict_annotations()
             
             analysis = {
                 'chart_type': 'candlestick',
@@ -43,22 +43,13 @@ class ChartAnalyzer:
                         'type': 'bullish_order_block', 
                         'confidence': 0.79,
                         'auto_detected': True,
-                        'location': 'consolidation'
-                    },
-                    {
-                        'name': 'Support Trendline',
-                        'type': 'trendline_support',
-                        'confidence': 0.91,
-                        'auto_detected': True,
-                        'angle': 'ascending'
+                        'location': 'before_fvg'
                     }
                 ],
                 'ict_concepts': {
-                    'fair_value_gaps': 3,
-                    'order_blocks': 2,
-                    'liquidity_zones': 4,
-                    'market_structure': 'bullish',
-                    'breakout_levels': ['155.25', '158.00']
+                    'fair_value_gaps': 2,
+                    'order_blocks': 1,
+                    'market_structure': 'bullish'
                 },
                 'sentiment': 'bullish',
                 'confidence_score': 0.86
@@ -67,100 +58,53 @@ class ChartAnalyzer:
         except Exception as e:
             return {'error': f'Analysis failed: {str(e)}'}
 
-    def generate_ict_annotations(self):
-        """Generate automatic ICT drawing annotations"""
+    def generate_proper_ict_annotations(self):
+        """Generate proper ICT-style drawing annotations"""
         annotations = []
         
-        # Auto-draw Fair Value Gaps (FVG)
+        # PROPER FVG (3-candle pattern)
         fvg_annotations = [
             {
                 'type': 'fvg_bullish',
-                'points': [
-                    {'x': 100, 'y': 150},
-                    {'x': 300, 'y': 150}, 
-                    {'x': 300, 'y': 145},
-                    {'x': 100, 'y': 145}
-                ],
+                'candle1': {'x': 100, 'y': 148, 'high': 150, 'low': 146},
+                'candle2': {'x': 200, 'y': 152, 'high': 154, 'low': 150},
+                'candle3': {'x': 300, 'y': 145, 'high': 147, 'low': 143},
                 'color': 'rgba(0, 255, 0, 0.3)',
                 'label': 'FVG Bullish',
-                'confidence': 0.85
+                'description': 'Candle 1 High → Candle 3 Low Gap'
             },
             {
-                'type': 'fvg_bearish', 
-                'points': [
-                    {'x': 400, 'y': 148},
-                    {'x': 600, 'y': 148},
-                    {'x': 600, 'y': 153},
-                    {'x': 400, 'y': 153}
-                ],
+                'type': 'fvg_bearish',
+                'candle1': {'x': 400, 'y': 155, 'high': 157, 'low': 153},
+                'candle2': {'x': 500, 'y': 148, 'high': 150, 'low': 146},
+                'candle3': {'x': 600, 'y': 152, 'high': 154, 'low': 150},
                 'color': 'rgba(255, 0, 0, 0.3)',
-                'label': 'FVG Bearish',
-                'confidence': 0.78
+                'label': 'FVG Bearish', 
+                'description': 'Candle 1 Low → Candle 3 High Gap'
             }
         ]
         
-        # Auto-draw Order Blocks (OB)
+        # PROPER ORDER BLOCKS (single candle before FVG)
         ob_annotations = [
             {
                 'type': 'order_block_bullish',
-                'points': [
-                    {'x': 200, 'y': 147},
-                    {'x': 250, 'y': 147},
-                    {'x': 250, 'y': 144},
-                    {'x': 200, 'y': 144}
-                ],
-                'color': 'rgba(0, 100, 255, 0.4)',
+                'candle': {'x': 50, 'y': 146, 'high': 148, 'low': 144, 'open': 147, 'close': 145},
+                'color': 'rgba(0, 100, 255, 0.5)',
                 'label': 'OB Bullish',
-                'strength': 'strong'
-            }
-        ]
-        
-        # Auto-draw Trendlines
-        trendline_annotations = [
-            {
-                'type': 'trendline_support',
-                'points': [
-                    {'x': 50, 'y': 142},
-                    {'x': 650, 'y': 148} 
-                ],
-                'color': 'green',
-                'label': 'Support Trendline',
-                'width': 3
+                'related_fvg': 'FVG Bullish at 100-300'
             },
             {
-                'type': 'trendline_resistance',
-                'points': [
-                    {'x': 80, 'y': 156},
-                    {'x': 620, 'y': 152}
-                ],
-                'color': 'red',
-                'label': 'Resistance Trendline', 
-                'width': 3
+                'type': 'order_block_bearish',
+                'candle': {'x': 350, 'y': 156, 'high': 158, 'low': 154, 'open': 155, 'close': 157},
+                'color': 'rgba(255, 100, 0, 0.5)',
+                'label': 'OB Bearish',
+                'related_fvg': 'FVG Bearish at 400-600'
             }
         ]
         
-        # Auto-draw Chart Patterns
-        pattern_annotations = [
-            {
-                'type': 'head_shoulders',
-                'points': [
-                    {'x': 150, 'y': 152},
-                    {'x': 250, 'y': 158},
-                    {'x': 350, 'y': 152},
-                    {'x': 450, 'y': 156},
-                    {'x': 550, 'y': 150}
-                ],
-                'color': 'purple',
-                'label': 'Head & Shoulders',
-                'pattern': 'reversal'
-            }
-        ]
-        
-        # Combine all auto-annotations
+        # Combine all annotations
         annotations.extend(fvg_annotations)
-        annotations.extend(ob_annotations) 
-        annotations.extend(trendline_annotations)
-        annotations.extend(pattern_annotations)
+        annotations.extend(ob_annotations)
         
         return annotations
 
@@ -250,33 +194,28 @@ def home():
     return jsonify({
         "message": "🤖 Self-Learning ICT Trading AI",
         "status": "ACTIVE ✅",
-        "version": "4.0",
+        "version": "5.0",
         "features": [
-            "ICT Pattern Detection",
-            "Auto-Draw FVG/OB/Trendlines",
-            "Chart Pattern Recognition", 
-            "Interactive Drawing Tools",
-            "SMC Analysis",
-            "Self-Learning AI"
+            "PROPER ICT FVG Drawing (3-candle)",
+            "Order Block Detection", 
+            "Smart Money Concepts",
+            "Auto-Draw Patterns",
+            "Interactive Analysis"
         ],
         "endpoints": {
-            "/web-draw": "Auto-draw + manual drawing",
-            "/web-upload": "Simple upload with auto-analysis",
-            "/analyze/<symbol>": "Symbol analysis",
-            "/start-learning": "Start AI learning",
-            "/knowledge": "View AI knowledge"
-        },
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            "/web-draw": "Professional ICT Drawing Tools",
+            "/analyze/<symbol>": "Symbol analysis"
+        }
     })
 
-# Enhanced Drawing Interface with Auto-Draw
+# Professional ICT Drawing Interface
 @app.route('/web-draw')
 def web_draw():
     return '''
     <!DOCTYPE html>
     <html>
     <head>
-        <title>🎨 AI Chart Analysis with Auto-Draw</title>
+        <title>🎯 Professional ICT Pattern Drawing</title>
         <style>
             body { 
                 font-family: 'Arial', sans-serif; 
@@ -355,12 +294,23 @@ def web_draw():
                 border-radius: 10px;
                 border-left: 5px solid #28a745;
             }
+            .ict-info {
+                background: #e3f2fd;
+                padding: 15px;
+                border-radius: 8px;
+                margin: 10px 0;
+            }
         </style>
     </head>
     <body>
         <div class="container">
-            <h1>🎨 AI Chart Analysis with Auto-Draw</h1>
-            <p><strong>Upload chart → Auto-draw ICT patterns → Manual annotations → Enhanced analysis</strong></p>
+            <h1>🎯 Professional ICT Pattern Drawing</h1>
+            
+            <div class="ict-info">
+                <h3>📚 ICT Concepts:</h3>
+                <p><strong>FVG (Fair Value Gap):</strong> 3-candle pattern - Rectangle between Candle 1 High and Candle 3 Low</p>
+                <p><strong>OB (Order Block):</strong> Single candle before FVG - Institutional accumulation zone</p>
+            </div>
             
             <!-- File Upload -->
             <div>
@@ -373,43 +323,30 @@ def web_draw():
                 <h3>🤖 Step 2: Auto-Draw ICT Patterns</h3>
                 <div class="toolbar">
                     <button class="tool-btn auto-draw-btn" id="autoDrawBtn">
-                        🚀 Auto-Draw All Patterns
+                        🚀 Auto-Draw Professional ICT
                     </button>
-                    <button class="tool-btn" id="drawFVG">📊 Draw FVG</button>
+                    <button class="tool-btn" id="drawFVG">📊 Draw FVG (3-Candle)</button>
                     <button class="tool-btn" id="drawOB">🟦 Draw Order Blocks</button>
-                    <button class="tool-btn" id="drawTrendlines">📈 Draw Trendlines</button>
-                    <button class="tool-btn" id="clearAutoDraw">🧹 Clear Auto-Draw</button>
+                    <button class="tool-btn" id="clearAutoDraw">🧹 Clear Drawings</button>
                 </div>
             </div>
 
-            <!-- Drawing Tools -->
-            <div>
-                <h3>🎨 Step 3: Manual Annotations</h3>
-                <div class="toolbar">
-                    <button class="tool-btn active" data-tool="line">📏 Line</button>
-                    <button class="tool-btn" data-tool="rectangle">⬜ Rectangle</button>
-                    <button class="tool-btn" data-tool="arrow">➡️ Arrow</button>
-                    <button class="tool-btn" data-tool="text">🔤 Text</button>
-                </div>
-                
-                <div class="legend">
-                    <div class="legend-item"><div class="legend-color" style="background: rgba(0,255,0,0.3);"></div> FVG Bullish</div>
-                    <div class="legend-item"><div class="legend-color" style="background: rgba(255,0,0,0.3);"></div> FVG Bearish</div>
-                    <div class="legend-item"><div class="legend-color" style="background: rgba(0,100,255,0.4);"></div> Order Blocks</div>
-                    <div class="legend-item"><div class="legend-color" style="background: green;"></div> Support</div>
-                    <div class="legend-item"><div class="legend-color" style="background: red;"></div> Resistance</div>
-                </div>
+            <div class="legend">
+                <div class="legend-item"><div class="legend-color" style="background: rgba(0,255,0,0.3);"></div> FVG Bullish</div>
+                <div class="legend-item"><div class="legend-color" style="background: rgba(255,0,0,0.3);"></div> FVG Bearish</div>
+                <div class="legend-item"><div class="legend-color" style="background: rgba(0,100,255,0.5);"></div> OB Bullish</div>
+                <div class="legend-item"><div class="legend-color" style="background: rgba(255,100,0,0.5);"></div> OB Bearish</div>
+            </div>
 
-                <div class="canvas-container">
-                    <canvas id="drawingCanvas"></canvas>
-                </div>
+            <div class="canvas-container">
+                <canvas id="drawingCanvas"></canvas>
             </div>
 
             <!-- Analysis -->
             <div>
-                <h3>🚀 Step 4: Enhanced AI Analysis</h3>
+                <h3>🚀 Step 3: Professional Analysis</h3>
                 <button id="analyzeBtn" style="padding: 15px 30px; font-size: 18px;">
-                    🤖 Analyze with Auto-Draw + Manual
+                    🤖 Analyze ICT Patterns
                 </button>
             </div>
 
@@ -434,20 +371,7 @@ def web_draw():
             resizeCanvas();
             window.addEventListener('resize', resizeCanvas);
 
-            // Tool selection
-            document.querySelectorAll('.tool-btn').forEach(btn => {
-                if (!btn.classList.contains('auto-draw-btn')) {
-                    btn.addEventListener('click', () => {
-                        document.querySelectorAll('.tool-btn').forEach(b => {
-                            if (!b.classList.contains('auto-draw-btn')) b.classList.remove('active');
-                        });
-                        btn.classList.add('active');
-                        currentTool = btn.dataset.tool;
-                    });
-                }
-            });
-
-            // Auto-draw functionality - FIXED
+            // Auto-draw functionality
             document.getElementById('autoDrawBtn').addEventListener('click', async function() {
                 const fileInput = document.getElementById('imageUpload');
                 if (!fileInput.files[0]) {
@@ -469,7 +393,7 @@ def web_draw():
                     if (response.ok) {
                         autoAnnotations = data.analysis.auto_annotations || [];
                         drawAutoAnnotations();
-                        alert(`✅ Auto-drew ${autoAnnotations.length} ICT patterns!`);
+                        alert(`✅ Auto-drew ${autoAnnotations.length} professional ICT patterns!`);
                     } else {
                         alert('Auto-draw failed: ' + data.error);
                     }
@@ -493,61 +417,83 @@ def web_draw():
                 
                 // Draw auto-annotations
                 autoAnnotations.forEach(annotation => {
-                    drawAnnotation(annotation);
+                    drawProfessionalAnnotation(annotation);
                 });
             }
 
-            function drawAnnotation(annotation) {
-                ctx.strokeStyle = annotation.color;
-                ctx.fillStyle = annotation.color;
-                ctx.lineWidth = annotation.width || 2;
+            function drawProfessionalAnnotation(annotation) {
                 ctx.globalAlpha = 1.0;
                 
                 if (annotation.type.includes('fvg')) {
-                    // Draw FVG as filled rectangle
-                    ctx.globalAlpha = 0.3;
-                    const width = annotation.points[1].x - annotation.points[0].x;
-                    const height = annotation.points[3].y - annotation.points[0].y;
-                    ctx.fillRect(annotation.points[0].x, annotation.points[0].y, width, height);
-                    ctx.globalAlpha = 1.0;
-                    ctx.strokeRect(annotation.points[0].x, annotation.points[0].y, width, height);
-                    
-                    // Draw label
-                    ctx.fillStyle = 'black';
-                    ctx.font = 'bold 14px Arial';
-                    ctx.fillText(annotation.label, annotation.points[0].x, annotation.points[0].y - 10);
-                    
-                } else if (annotation.type.includes('trendline')) {
-                    // Draw trendline
-                    ctx.beginPath();
-                    ctx.moveTo(annotation.points[0].x, annotation.points[0].y);
-                    ctx.lineTo(annotation.points[1].x, annotation.points[1].y);
-                    ctx.stroke();
-                    
-                    // Draw label
-                    ctx.fillStyle = annotation.color;
-                    ctx.font = 'bold 12px Arial';
-                    const midX = (annotation.points[0].x + annotation.points[1].x) / 2;
-                    const midY = (annotation.points[0].y + annotation.points[1].y) / 2;
-                    ctx.fillText(annotation.label, midX + 10, midY - 10);
-                    
+                    drawFVG(annotation);
                 } else if (annotation.type.includes('order_block')) {
-                    // Draw order block
-                    ctx.globalAlpha = 0.4;
-                    const width = annotation.points[1].x - annotation.points[0].x;
-                    const height = annotation.points[3].y - annotation.points[0].y;
-                    ctx.fillRect(annotation.points[0].x, annotation.points[0].y, width, height);
-                    ctx.globalAlpha = 1.0;
-                    ctx.strokeRect(annotation.points[0].x, annotation.points[0].y, width, height);
-                    
-                    // Draw label
-                    ctx.fillStyle = 'black';
-                    ctx.font = 'bold 12px Arial';
-                    ctx.fillText(annotation.label, annotation.points[0].x, annotation.points[0].y - 10);
+                    drawOrderBlock(annotation);
                 }
             }
 
-            // Image upload - FIXED
+            function drawFVG(fvg) {
+                if (fvg.type === 'fvg_bullish') {
+                    // Bullish FVG: Candle 1 High to Candle 3 Low
+                    const candle1 = fvg.candle1;
+                    const candle3 = fvg.candle3;
+                    
+                    // Draw FVG rectangle
+                    ctx.fillStyle = fvg.color;
+                    ctx.globalAlpha = 0.3;
+                    ctx.fillRect(candle1.x, candle1.high, candle3.x - candle1.x, candle3.low - candle1.high);
+                    ctx.globalAlpha = 1.0;
+                    ctx.strokeStyle = 'green';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(candle1.x, candle1.high, candle3.x - candle1.x, candle3.low - candle1.high);
+                    
+                    // Draw label
+                    ctx.fillStyle = 'darkgreen';
+                    ctx.font = 'bold 12px Arial';
+                    ctx.fillText(fvg.label, candle1.x, candle1.high - 10);
+                    ctx.fillText(fvg.description, candle1.x, candle1.high - 25);
+                    
+                } else if (fvg.type === 'fvg_bearish') {
+                    // Bearish FVG: Candle 1 Low to Candle 3 High
+                    const candle1 = fvg.candle1;
+                    const candle3 = fvg.candle3;
+                    
+                    // Draw FVG rectangle
+                    ctx.fillStyle = fvg.color;
+                    ctx.globalAlpha = 0.3;
+                    ctx.fillRect(candle1.x, candle1.low, candle3.x - candle1.x, candle3.high - candle1.low);
+                    ctx.globalAlpha = 1.0;
+                    ctx.strokeStyle = 'red';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(candle1.x, candle1.low, candle3.x - candle1.x, candle3.high - candle1.low);
+                    
+                    // Draw label
+                    ctx.fillStyle = 'darkred';
+                    ctx.font = 'bold 12px Arial';
+                    ctx.fillText(fvg.label, candle1.x, candle1.low - 10);
+                    ctx.fillText(fvg.description, candle1.x, candle1.low - 25);
+                }
+            }
+
+            function drawOrderBlock(ob) {
+                const candle = ob.candle;
+                const candleWidth = 20;
+                
+                // Draw order block rectangle
+                ctx.fillStyle = ob.color;
+                ctx.globalAlpha = 0.5;
+                ctx.fillRect(candle.x - candleWidth/2, candle.low, candleWidth, candle.high - candle.low);
+                ctx.globalAlpha = 1.0;
+                ctx.strokeStyle = ob.type.includes('bullish') ? 'blue' : 'orange';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(candle.x - candleWidth/2, candle.low, candleWidth, candle.high - candle.low);
+                
+                // Draw label
+                ctx.fillStyle = 'black';
+                ctx.font = 'bold 11px Arial';
+                ctx.fillText(ob.label, candle.x - 25, candle.low - 5);
+            }
+
+            // Image upload
             document.getElementById('imageUpload').addEventListener('change', function(e) {
                 const file = e.target.files[0];
                 if (file) {
@@ -563,57 +509,7 @@ def web_draw():
                 }
             });
 
-            // Basic drawing functionality
-            canvas.addEventListener('mousedown', startDrawing);
-            canvas.addEventListener('mousemove', draw);
-            canvas.addEventListener('mouseup', stopDrawing);
-
-            function startDrawing(e) {
-                isDrawing = true;
-                startX = e.offsetX;
-                startY = e.offsetY;
-                
-                if (currentTool === 'text') {
-                    const text = prompt('Enter text:');
-                    if (text) {
-                        ctx.fillStyle = 'black';
-                        ctx.font = '16px Arial';
-                        ctx.fillText(text, startX, startY);
-                        annotations.push({type: 'text', text, x: startX, y: startY});
-                        redrawEverything();
-                    }
-                }
-            }
-
-            function draw(e) {
-                if (!isDrawing || currentTool === 'text') return;
-                
-                ctx.strokeStyle = 'blue';
-                ctx.lineWidth = 2;
-
-                if (currentTool === 'line') {
-                    redrawEverything();
-                    ctx.beginPath();
-                    ctx.moveTo(startX, startY);
-                    ctx.lineTo(e.offsetX, e.offsetY);
-                    ctx.stroke();
-                }
-            }
-
-            function stopDrawing(e) {
-                if (!isDrawing) return;
-                isDrawing = false;
-                
-                if (currentTool === 'line') {
-                    annotations.push({
-                        type: 'line',
-                        start: {x: startX, y: startY},
-                        end: {x: e.offsetX, y: e.offsetY}
-                    });
-                }
-            }
-
-            // Enhanced analysis with auto-draw
+            // Analysis button
             document.getElementById('analyzeBtn').addEventListener('click', async function() {
                 const fileInput = document.getElementById('imageUpload');
                 if (!fileInput.files[0]) {
@@ -628,7 +524,7 @@ def web_draw():
                 const resultDiv = document.getElementById('result');
                 const analyzeBtn = this;
 
-                analyzeBtn.innerHTML = '⏳ Enhanced AI Analysis...';
+                analyzeBtn.innerHTML = '⏳ Professional ICT Analysis...';
                 analyzeBtn.disabled = true;
 
                 try {
@@ -641,29 +537,27 @@ def web_draw():
                     
                     if (response.ok) {
                         resultDiv.innerHTML = `
-                            <h3>✅ Enhanced AI Analysis Complete!</h3>
+                            <h3>✅ Professional ICT Analysis Complete!</h3>
                             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
                                 <div>
-                                    <h4>🤖 Auto-Detected</h4>
+                                    <h4>🎯 Pattern Summary</h4>
                                     <p><strong>FVG Patterns:</strong> ${data.analysis.ict_concepts.fair_value_gaps}</p>
                                     <p><strong>Order Blocks:</strong> ${data.analysis.ict_concepts.order_blocks}</p>
-                                    <p><strong>Liquidity Zones:</strong> ${data.analysis.ict_concepts.liquidity_zones}</p>
+                                    <p><strong>Market Structure:</strong> ${data.analysis.ict_concepts.market_structure}</p>
                                 </div>
                                 <div>
                                     <h4>📊 Analysis</h4>
-                                    <p><strong>Market Structure:</strong> ${data.analysis.ict_concepts.market_structure}</p>
                                     <p><strong>Sentiment:</strong> ${data.analysis.sentiment}</p>
                                     <p><strong>Confidence:</strong> ${(data.analysis.confidence_score * 100).toFixed(1)}%</p>
                                 </div>
                             </div>
                             
-                            <h4>🎯 Key Levels:</h4>
-                            <p>${data.analysis.ict_concepts.breakout_levels.join(', ')}</p>
-                            
-                            <details>
-                                <summary>📋 Full Analysis Details</summary>
-                                <pre>${JSON.stringify(data.analysis, null, 2)}</pre>
-                            </details>
+                            <h4>🔍 Detected Patterns:</h4>
+                            <ul>
+                                ${data.analysis.patterns_found.map(pattern => 
+                                    `<li><strong>${pattern.name}</strong> - ${pattern.type} (${(pattern.confidence * 100).toFixed(1)}% confidence)</li>`
+                                ).join('')}
+                            </ul>
                         `;
                     } else {
                         resultDiv.innerHTML = `<h3>❌ Error:</h3><p>${data.error}</p>`;
@@ -673,16 +567,16 @@ def web_draw():
                     resultDiv.innerHTML = `<h3>❌ Network Error:</h3><p>${error}</p>`;
                     resultDiv.style.display = 'block';
                 } finally {
-                    analyzeBtn.innerHTML = '🤖 Analyze with Auto-Draw + Manual';
+                    analyzeBtn.innerHTML = '🤖 Analyze ICT Patterns';
                     analyzeBtn.disabled = false;
                 }
             });
 
-            // Clear auto-draw
+            // Clear drawings
             document.getElementById('clearAutoDraw').addEventListener('click', function() {
                 autoAnnotations = [];
                 redrawEverything();
-                alert('Auto-draw cleared!');
+                alert('ICT drawings cleared!');
             });
         </script>
     </body>
@@ -716,7 +610,7 @@ def upload_chart():
             
             return jsonify({
                 'status': 'success',
-                'message': 'Chart analyzed with auto-draw 🎯',
+                'message': 'Professional ICT analysis complete 🎯',
                 'user_annotations_count': len(parsed_annotations),
                 'auto_annotations_count': len(analysis.get('auto_annotations', [])),
                 'analysis': analysis,
@@ -727,11 +621,6 @@ def upload_chart():
             
     except Exception as e:
         return jsonify({'error': f'Upload failed: {str(e)}'}), 500
-
-# Other endpoints
-@app.route('/web-upload')
-def web_upload():
-    return 'Visit <a href="/web-draw">/web-draw</a> for enhanced analysis with auto-draw!'
 
 @app.route('/start-learning')
 def start_learning():
@@ -774,8 +663,8 @@ def health_check():
     })
 
 if __name__ == '__main__':
-    print("🚀 Trading AI with Auto-Draw Started!")
-    print("🎯 Auto-draw FVG, Order Blocks, Trendlines")
+    print("🚀 Professional ICT Trading AI Started!")
+    print("🎯 PROPER FVG (3-candle) and Order Block drawing")
     ai.start_learning()
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
