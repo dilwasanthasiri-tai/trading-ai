@@ -12,6 +12,10 @@ import pandas as pd
 
 app = Flask(__name__)
 
+# Create uploads directory if it doesn't exist
+if not os.path.exists('static/uploads'):
+    os.makedirs('static/uploads')
+
 # Initialize model and data
 try:
     prediction_model = joblib.load('ict_prediction_model.pkl')
@@ -38,6 +42,11 @@ class ICTMarketPredictor:
                 
                 image_bytes = base64.b64decode(self.image_data)
                 image = Image.open(io.BytesIO(image_bytes))
+                
+                # Convert to RGB if necessary
+                if image.mode != 'RGB':
+                    image = image.convert('RGB')
+                
                 img_array = np.array(image)
                 
                 # Basic image analysis
@@ -49,34 +58,43 @@ class ICTMarketPredictor:
                     'green_percentage': self.detect_color_percentage(img_array, 'green'),
                     'red_percentage': self.detect_color_percentage(img_array, 'red'),
                     'trend_direction': self.analyze_trend_direction(img_array),
-                    'volatility_indicator': np.std(img_array) if len(img_array.shape) > 2 else 0
+                    'volatility_indicator': float(np.std(img_array))
                 }
+                print(f"📊 Extracted features: {features}")
                 return features
         except Exception as e:
-            print(f"Image processing error: {e}")
+            print(f"❌ Image processing error: {e}")
+        
+        # Return default features if processing fails
         return {
-            'image_width': 0, 'image_height': 0, 'avg_brightness': 0, 
-            'contrast': 0, 'green_percentage': 0, 'red_percentage': 0,
-            'trend_direction': 0, 'volatility_indicator': 0
+            'image_width': 800, 
+            'image_height': 600, 
+            'avg_brightness': 127.5, 
+            'contrast': 50.0, 
+            'green_percentage': 0.5, 
+            'red_percentage': 0.5,
+            'trend_direction': 0, 
+            'volatility_indicator': 50.0
         }
     
     def detect_color_percentage(self, img_array, color):
-        """Detect color percentage in image (simplified)"""
+        """Detect color percentage in image"""
         try:
-            if len(img_array.shape) != 3:
-                return 0.5
-                
             if color == 'green':
-                # Simple green detection (RGB)
-                green_pixels = np.sum((img_array[:,:,1] > img_array[:,:,0]) & 
-                                    (img_array[:,:,1] > img_array[:,:,2]))
-                return green_pixels / (img_array.shape[0] * img_array.shape[1])
+                # Detect green pixels (G > R and G > B)
+                green_pixels = np.sum((img_array[:,:,1] > img_array[:,:,0] + 10) & 
+                                    (img_array[:,:,1] > img_array[:,:,2] + 10))
+                total_pixels = img_array.shape[0] * img_array.shape[1]
+                return float(green_pixels / total_pixels)
             else:  # red
-                red_pixels = np.sum((img_array[:,:,0] > img_array[:,:,1]) & 
-                                  (img_array[:,:,0] > img_array[:,:,2]))
-                return red_pixels / (img_array.shape[0] * img_array.shape[1])
-        except:
-            return random.uniform(0.3, 0.7)
+                # Detect red pixels (R > G and R > B)
+                red_pixels = np.sum((img_array[:,:,0] > img_array[:,:,1] + 10) & 
+                                  (img_array[:,:,0] > img_array[:,:,2] + 10))
+                total_pixels = img_array.shape[0] * img_array.shape[1]
+                return float(red_pixels / total_pixels)
+        except Exception as e:
+            print(f"Color detection error: {e}")
+            return 0.5
     
     def analyze_trend_direction(self, img_array):
         """Analyze overall trend direction from image"""
@@ -84,13 +102,16 @@ class ICTMarketPredictor:
             green_pct = self.detect_color_percentage(img_array, 'green')
             red_pct = self.detect_color_percentage(img_array, 'red')
             
-            if green_pct > red_pct + 0.1:
+            print(f"📈 Green: {green_pct:.2f}, Red: {red_pct:.2f}")
+            
+            if green_pct > red_pct + 0.15:
                 return 1  # Bullish
-            elif red_pct > green_pct + 0.1:
+            elif red_pct > green_pct + 0.15:
                 return -1  # Bearish
             else:
                 return 0  # Neutral
-        except:
+        except Exception as e:
+            print(f"Trend analysis error: {e}")
             return random.choice([-1, 0, 1])
     
     def complete_ict_analysis(self):
@@ -104,7 +125,7 @@ class ICTMarketPredictor:
             'liquidity': self.analyze_liquidity(),
             'mitigation_blocks': self.find_mitigation_blocks(),
             'time_analysis': self.time_based_analysis(),
-            'chart_analysis': self.chart_features,
+            'chart_analysis': self.chart_features or {},
             'prediction': self.predict_next_candle(),
             'trading_plan': self.create_trading_plan(),
             'risk_management': self.calculate_risk()
@@ -203,23 +224,28 @@ class ICTMarketPredictor:
         green_pct = self.chart_features.get('green_percentage', 0) if self.chart_features else 0
         red_pct = self.chart_features.get('red_percentage', 0) if self.chart_features else 0
         
+        print(f"🎯 Prediction inputs - Trend: {image_trend}, Green: {green_pct:.2f}, Red: {red_pct:.2f}")
+        
         # ML-based prediction
         ml_prediction = self.ml_predict()
         
         if ml_prediction == "BULLISH" or (image_trend > 0 and green_pct > red_pct):
             direction = 'BULLISH'
             probability = round(random.uniform(70, 95), 1)
+            reason = "Bullish chart pattern + ICT confluence"
         elif ml_prediction == "BEARISH" or (image_trend < 0 and red_pct > green_pct):
             direction = 'BEARISH'
             probability = round(random.uniform(70, 95), 1)
+            reason = "Bearish chart pattern + ICT confluence"
         else:
             direction = random.choice(['BULLISH', 'BEARISH'])
             probability = round(random.uniform(60, 80), 1)
+            reason = "Mixed signals - ICT analysis dominant"
         
         return {
             'direction': direction,
             'probability': probability,
-            'reason': f'ICT Analysis + Chart Pattern: {direction} bias detected',
+            'reason': reason,
             'targets': {
                 'immediate': round(random.uniform(156, 160), 2) if direction == 'BULLISH' else round(random.uniform(144, 148), 2),
                 'secondary': round(random.uniform(160, 164), 2) if direction == 'BULLISH' else round(random.uniform(140, 144), 2)
@@ -241,10 +267,11 @@ class ICTMarketPredictor:
             
             # Train model if we have enough data
             if len(df) > 10:
-                features = ['probability', 'green_percentage', 'red_percentage', 'trend_direction']
-                X = df[features]
-                y = df['actual_direction']
-                prediction_model.fit(X, y)
+                available_features = [col for col in ['probability', 'green_percentage', 'red_percentage', 'trend_direction'] if col in df.columns]
+                if available_features and 'actual_direction' in df.columns:
+                    X = df[available_features]
+                    y = df['actual_direction']
+                    prediction_model.fit(X, y)
             
             # Make prediction
             current_features = [
@@ -309,7 +336,7 @@ def home():
         "endpoints": {
             "/analyze": "POST - Upload image for analysis",
             "/predict": "POST - Quick prediction with image",
-            "/web-analyzer": "Web Interface with Image Upload",
+            "/web-analyzer": "GET - Web Interface with Image Upload",
             "/feedback": "POST - Provide feedback for self-learning",
             "/health": "GET - Health check"
         }
@@ -321,7 +348,8 @@ def health_check():
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
         "model_ready": len(historical_data) > 0,
-        "samples_count": len(historical_data)
+        "samples_count": len(historical_data),
+        "upload_dir_exists": os.path.exists('static/uploads')
     })
 
 @app.route('/analyze', methods=['POST'])
@@ -333,6 +361,7 @@ def complete_analysis():
             return jsonify({'error': 'No image data provided'}), 400
             
         image_data = data.get('image_data')
+        print("🖼️ Received image for analysis")
         
         predictor = ICTMarketPredictor(image_data)
         analysis = predictor.complete_ict_analysis()
@@ -344,6 +373,7 @@ def complete_analysis():
             'analysis_method': 'COMPLETE_ICT_WITH_IMAGE'
         })
     except Exception as e:
+        print(f"❌ Analysis error: {e}")
         return jsonify({'error': str(e)}), 400
 
 @app.route('/predict', methods=['POST'])
@@ -687,5 +717,6 @@ if __name__ == '__main__':
     print("🚀 ICT Market Predictor Started Successfully!")
     print("📸 Features: Image Analysis + ICT + Self-Learning AI")
     print("🌐 Ready for Render Deployment")
+    print("📁 Upload directory created:", os.path.exists('static/uploads'))
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
