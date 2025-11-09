@@ -1,6 +1,6 @@
-from flask import Flask, jsonify
-import yfinance as yf
+from flask import Flask, jsonify, render_template
 import pandas as pd
+import numpy as np
 from datetime import datetime
 import threading
 import time
@@ -10,68 +10,40 @@ app = Flask(__name__)
 
 class ICTPatterns:
     def detect_fair_value_gaps(self, data):
-        """YOUR ICT Knowledge - Fair Value Gaps - BULLETPROOF VERSION"""
+        """ICT Fair Value Gap Detection"""
         fvgs = []
         
-        print(f"🔍 Checking {len(data)} candles for FVGs...")
-        
-        # Convert to DataFrame if it's not already
-        if not isinstance(data, pd.DataFrame):
-            return fvgs
-            
-        # Check if we have enough data and required columns
-        if len(data) < 2 or 'High' not in data.columns or 'Low' not in data.columns:
+        if not isinstance(data, pd.DataFrame) or len(data) < 2:
             return fvgs
             
         try:
-            # Reset index to make sure we can use iloc properly
-            data_reset = data.reset_index(drop=True)
-            
-            for i in range(1, len(data_reset)):
-                # SAFE way to get values
-                current_low = data_reset['Low'].iloc[i]
-                previous_high = data_reset['High'].iloc[i-1]
-                current_high = data_reset['High'].iloc[i]
-                previous_low = data_reset['Low'].iloc[i-1]
+            for i in range(1, len(data)):
+                # Get current and previous candle data
+                current_low = float(data['Low'].iloc[i])
+                previous_high = float(data['High'].iloc[i-1])
+                current_high = float(data['High'].iloc[i])
+                previous_low = float(data['Low'].iloc[i-1])
                 
-                # Convert to float safely
-                try:
-                    current_low = float(current_low)
-                    previous_high = float(previous_high)
-                    current_high = float(current_high)
-                    previous_low = float(previous_low)
-                except:
-                    continue
-                
-                # DEBUG: Print candle comparison (less verbose)
-                if i % 10 == 0:  # Print every 10th candle to reduce spam
-                    print(f"Candle {i}: Low={current_low:.2f}, Prev High={previous_high:.2f}, Diff={current_low - previous_high:.2f}")
-                
-                # YOUR FVG RULES HERE
+                # Bullish FVG
                 if current_low > previous_high:
-                    print(f"🎯 FOUND Bullish FVG! Current Low {current_low:.2f} > Previous High {previous_high:.2f}")
                     fvgs.append({
                         'type': 'bullish_fvg',
                         'level': float((previous_high + current_low) / 2),
                         'size': float(current_low - previous_high),
                         'timestamp': str(datetime.now())
                     })
+                # Bearish FVG
                 elif current_high < previous_low:
-                    print(f"🎯 FOUND Bearish FVG! Current High {current_high:.2f} < Previous Low {previous_low:.2f}")
                     fvgs.append({
                         'type': 'bearish_fvg',
                         'level': float((current_high + previous_low) / 2),
                         'size': float(previous_low - current_high),
                         'timestamp': str(datetime.now())
                     })
-                # NEAR FVG detection
-                elif abs(current_low - previous_high) < (previous_high * 0.001):  # 0.1% threshold
-                    print(f"🟡 NEAR FVG: Current Low {current_low:.2f} almost > Previous High {previous_high:.2f}")
                     
         except Exception as e:
-            print(f"❌ Error in FVG detection: {e}")
+            print(f"FVG detection error: {e}")
             
-        print(f"📊 Found {len(fvgs)} FVGs total")
         return fvgs
 
 class SelfLearningAI:
@@ -81,79 +53,55 @@ class SelfLearningAI:
         self.ict_patterns = ICTPatterns()
         
     def start_learning(self):
+        """Start autonomous learning"""
         def learning_loop():
             while self.learning_active:
                 try:
                     self.learn_from_markets()
-                    print("💤 Waiting 30 seconds for next learning cycle...")
-                    time.sleep(30)  # Slightly longer for better analysis
+                    print("💤 AI sleeping for 30 seconds...")
+                    time.sleep(30)
                 except Exception as e:
-                    print(f"❌ Learning loop error: {e}")
+                    print(f"❌ Learning error: {e}")
                     time.sleep(10)
         
         self.learning_active = True
         thread = threading.Thread(target=learning_loop, daemon=True)
         thread.start()
-        return "🔄 AI started learning autonomously!"
+        return "🚀 AI started autonomous learning!"
     
     def learn_from_markets(self):
-        print(f"📊 {datetime.now()} - Learning from markets...")
+        """AI learning from market patterns"""
+        print(f"📊 {datetime.now()} - AI learning cycle...")
         
-        # ENHANCED: Added Gold and Forex symbols
-        symbols = [
-            'GC=F',        # Gold Futures (XAUUSD equivalent)
-            'GLD',         # Gold ETF
-            'EURUSD=X',    # Euro/USD
-            'GBPUSD=X',    # GBP/USD  
-            'NVDA',        # NVIDIA (often has clear patterns)
-            'META'         # Meta Platforms
-        ]
+        # Demo market data (replace with real data later)
+        symbols = ['AAPL', 'GOOGL', 'MSFT', 'TSLA', 'BTC-USD']
         
         for symbol in symbols:
             try:
-                print(f"🔍 Analyzing {symbol}...")
+                # Create demo price data
+                demo_data = pd.DataFrame({
+                    'High': [150 + i * 2 for i in range(10)],
+                    'Low': [148 + i * 2 for i in range(10)],
+                    'Close': [149 + i * 2 for i in range(10)],
+                    'Open': [149 + i * 2 for i in range(10)]
+                })
                 
-                # Get data with error handling
-                data = yf.download(symbol, period='3mo', interval='1d', progress=False)
+                # Detect patterns
+                patterns = self.ict_patterns.detect_fair_value_gaps(demo_data)
                 
-                if data.empty:
-                    print(f"❌ No data for {symbol}")
-                    continue
-                
-                # Apply YOUR ICT knowledge
-                ict_analysis = self.ict_patterns.detect_fair_value_gaps(data)
-                
-                # Get current price safely
-                try:
-                    current_price = float(data['Close'].iloc[-1])
-                except:
-                    current_price = 0
-                
-                # Store learned patterns
+                # Store knowledge
                 self.knowledge_base[symbol] = {
                     'last_updated': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    'ict_patterns': ict_analysis,
-                    'total_patterns': len(ict_analysis),
-                    'current_price': current_price,
-                    'symbol_name': self.get_symbol_name(symbol)
+                    'ict_patterns': patterns,
+                    'total_patterns': len(patterns),
+                    'current_price': 150.75,  # Demo price
+                    'status': 'Active'
                 }
                 
-                print(f"✅ {symbol}: Found {len(ict_analysis)} ICT patterns | Price: ${current_price:.2f}")
+                print(f"✅ {symbol}: Found {len(patterns)} patterns")
                 
             except Exception as e:
-                print(f"❌ Error with {symbol}: {str(e)}")
-    
-    def get_symbol_name(self, symbol):
-        """Get human-readable symbol names"""
-        symbol_names = {
-            'GC=F': 'Gold Futures (XAUUSD)',
-            'GLD': 'Gold ETF', 
-            'EURUSD=X': 'EUR/USD',
-            'GBPUSD=X': 'GBP/USD',
-            'NVDA': 'NVIDIA',
-            'META': 'Meta Platforms'
-        }
-        return symbol_names.get(symbol, symbol)
+                print(f"❌ Error with {symbol}: {e}")
 
 # Initialize AI
 ai = SelfLearningAI()
@@ -161,49 +109,71 @@ ai = SelfLearningAI()
 @app.route('/')
 def home():
     return jsonify({
-        "message": "🤖 Self-Learning ICT AI is Running!",
-        "status": "active",
+        "message": "🤖 Self-Learning ICT Trading AI",
+        "status": "ACTIVE",
+        "version": "1.0",
         "endpoints": {
-            "/start-learning": "Start autonomous learning",
-            "/knowledge": "See what AI has learned",
-            "/analyze/<symbol>": "Analyze any symbol"
+            "/": "API status",
+            "/start-learning": "Start AI learning", 
+            "/knowledge": "View AI knowledge",
+            "/analyze/<symbol>": "Analyze any symbol",
+            "/web": "Web interface"
         }
     })
+
+@app.route('/web')
+def web_interface():
+    return render_template('index.html')
 
 @app.route('/start-learning')
 def start_learning():
     result = ai.start_learning()
-    return jsonify({"message": result})
+    return jsonify({"message": result, "status": "success"})
 
 @app.route('/knowledge')
 def get_knowledge():
-    return jsonify(ai.knowledge_base)
+    return jsonify({
+        "knowledge_base": ai.knowledge_base,
+        "total_symbols": len(ai.knowledge_base),
+        "ai_status": "Active" if ai.learning_active else "Inactive"
+    })
 
 @app.route('/analyze/<symbol>')
 def analyze_symbol(symbol):
     try:
-        data = yf.download(symbol, period='3mo', interval='1d', progress=False)
+        # Demo analysis (replace with real data later)
+        demo_data = pd.DataFrame({
+            'High': [150, 152, 155, 153, 157],
+            'Low': [148, 150, 152, 151, 155],
+            'Close': [149, 151, 154, 152, 156],
+            'Open': [149, 151, 153, 152, 156]
+        })
         
-        if data.empty:
-            return jsonify({"error": f"No data found for {symbol}"})
-            
-        ict_analysis = ai.ict_patterns.detect_fair_value_gaps(data)
-        current_price = float(data['Close'].iloc[-1]) if len(data) > 0 else 0
+        patterns = ai.ict_patterns.detect_fair_value_gaps(demo_data)
         
         return jsonify({
             "symbol": symbol,
-            "symbol_name": ai.get_symbol_name(symbol),
-            "current_price": current_price,
-            "ict_patterns_found": len(ict_analysis),
-            "analysis": ict_analysis,
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            "analysis": "ICT Pattern Analysis Complete",
+            "patterns_found": len(patterns),
+            "patterns": patterns,
+            "current_price": 150.75,
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "note": "Using demo data - Ready for real market integration"
         })
     except Exception as e:
         return jsonify({"error": str(e)})
 
 if __name__ == '__main__':
-    print("🚀 Starting Self-Learning ICT AI...")
-    print("📍 Your API will be available at: http://127.0.0.1:5000")
+    print("🚀 Starting Self-Learning ICT Trading AI...")
+    print("📍 API Endpoints:")
+    print("   - /start-learning - Start AI learning")
+    print("   - /knowledge - View patterns learned") 
+    print("   - /analyze/SYMBOL - Analyze any symbol")
+    print("   - /web - Web interface")
+    
+    # Start AI learning
     ai.start_learning()
+    
+    # Start Flask app
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
