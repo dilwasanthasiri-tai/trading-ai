@@ -8,7 +8,6 @@ import random
 import base64
 from io import BytesIO
 from PIL import Image, ImageFilter, ImageDraw
-import numpy as np
 
 app = Flask(__name__)
 
@@ -35,33 +34,19 @@ class RealCandleDetector:
             image = Image.open(io.BytesIO(image_data))
             original_width, original_height = image.size
             
-            # Convert to numpy array for processing
-            img_array = np.array(image)
-            
             # Convert to grayscale
-            if len(img_array.shape) == 3:
-                gray = np.mean(img_array, axis=2).astype(np.uint8)
+            if image.mode != 'L':
+                gray = image.convert('L')
             else:
-                gray = img_array
+                gray = image
             
-            # Multiple detection strategies
-            candles_strategy1 = self.detect_vertical_lines(gray, original_width, original_height)
-            candles_strategy2 = self.detect_bright_regions(gray, original_width, original_height)
-            candles_strategy3 = self.detect_edges_pil(image, original_width, original_height)
+            # Simple detection using brightness analysis
+            candles = self.detect_by_brightness(gray, original_width, original_height)
             
-            # Combine all detections
-            all_candles = candles_strategy1 + candles_strategy2 + candles_strategy3
-            
-            # Remove duplicates and merge nearby candles
-            merged_candles = self.merge_similar_candles(all_candles)
-            
-            # Sort candles by X position (left to right)
-            merged_candles.sort(key=lambda x: x['x'])
-            
-            print(f"✅ Detected {len(merged_candles)} real candles")
+            print(f"✅ Detected {len(candles)} real candles")
             
             return {
-                'candles': merged_candles,
+                'candles': candles,
                 'image_info': {
                     'original_width': original_width,
                     'original_height': original_height
@@ -73,199 +58,58 @@ class RealCandleDetector:
             print(f"❌ Candle detection error: {e}")
             return {'candles': [], 'error': str(e)}
 
-    def detect_vertical_lines(self, gray, width, height):
-        """Detect vertical lines (candle wicks)"""
+    def detect_by_brightness(self, gray_image, width, height):
+        """Simple candle detection using brightness analysis"""
         candles = []
+        pixels = gray_image.load()
         
-        # Simple vertical line detection
-        for x in range(10, width - 10, 5):  # Sample every 5 pixels
-            column = gray[:, x]
+        # Sample every 10 pixels for performance
+        for x in range(10, width - 10, 10):
+            column_brightness = []
             
-            # Find significant brightness changes (potential wicks)
-            diff = np.diff(column)
-            large_changes = np.where(np.abs(diff) > 30)[0]
+            # Get brightness values for this column
+            for y in range(10, height - 10, 2):  # Sample every 2 pixels vertically
+                brightness = pixels[x, y]
+                column_brightness.append((y, brightness))
             
-            if len(large_changes) >= 2:
-                # Potential candle wick found
-                high_point = large_changes[0]
-                low_point = large_changes[-1]
-                wick_height = low_point - high_point
+            # Find bright regions (potential candle bodies)
+            bright_regions = self.find_bright_regions(column_brightness)
+            
+            for region in bright_regions:
+                y_high, y_low = region
+                candle_height = y_low - y_high
                 
-                if wick_height > self.min_candle_height:
+                if candle_height > self.min_candle_height:
                     candles.append({
                         'x': x,
-                        'high': high_point,
-                        'low': low_point,
-                        'width': 4,
-                        'height': wick_height,
-                        'type': 'vertical_line',
-                        'confidence': 0.6
+                        'high': y_high,
+                        'low': y_low,
+                        'width': 20,
+                        'height': candle_height,
+                        'type': 'brightness_based',
+                        'confidence': 0.7
                     })
         
         return candles
 
-    def detect_bright_regions(self, gray, width, height):
-        """Detect bright regions (candle bodies)"""
-        candles = []
+    def find_bright_regions(self, column_brightness, brightness_threshold=150):
+        """Find bright regions in a column"""
+        regions = []
+        in_region = False
+        region_start = 0
         
-        # Threshold to find bright regions
-        threshold = np.mean(gray) + 20
-        bright_mask = gray > threshold
+        for y, brightness in column_brightness:
+            if brightness > brightness_threshold and not in_region:
+                # Start of bright region
+                in_region = True
+                region_start = y
+            elif brightness <= brightness_threshold and in_region:
+                # End of bright region
+                in_region = False
+                region_end = y
+                regions.append((region_start, region_end))
         
-        # Find connected bright regions
-        for x in range(10, width - 10, 3):
-            for y in range(10, height - 10, 3):
-                if bright_mask[y, x]:
-                    # Explore region
-                    region = self.explore_region(bright_mask, x, y, width, height)
-                    if region:
-                        x_min, y_min, x_max, y_max = region
-                        region_width = x_max - x_min
-                        region_height = y_max - y_min
-                        
-                        # Check if region looks like a candle
-                        if (region_height > self.min_candle_height and 
-                            region_width < self.max_candle_width):
-                            candles.append({
-                                'x': (x_min + x_max) // 2,
-                                'high': y_min,
-                                'low': y_max,
-                                'width': region_width,
-                                'height': region_height,
-                                'type': 'bright_region',
-                                'confidence': 0.7
-                            })
-        
-        return candles
-
-    def detect_edges_pil(self, image, width, height):
-        """Detect edges using PIL filters"""
-        candles = []
-        
-        # Convert to grayscale if needed
-        if image.mode != 'L':
-            gray_image = image.convert('L')
-        else:
-            gray_image = image
-        
-        # Apply edge enhancement
-        edges = gray_image.filter(ImageFilter.FIND_EDGES)
-        edge_array = np.array(edges)
-        
-        # Find edge points
-        edge_points = np.where(edge_array > 50)
-        
-        if len(edge_points[0]) > 0:
-            # Group nearby edge points
-            for i in range(0, len(edge_points[0]), 10):  # Sample points
-                y, x = edge_points[0][i], edge_points[1][i]
-                
-                # Look for vertical edge clusters
-                vertical_cluster = self.find_vertical_cluster(edge_points, x, y, width, height)
-                if vertical_cluster:
-                    x_center, high, low = vertical_cluster
-                    height_candle = low - high
-                    
-                    if height_candle > self.min_candle_height:
-                        candles.append({
-                            'x': x_center,
-                            'high': high,
-                            'low': low,
-                            'width': 6,
-                            'height': height_candle,
-                            'type': 'edge_based',
-                            'confidence': 0.5
-                        })
-        
-        return candles
-
-    def explore_region(self, mask, start_x, start_y, width, height):
-        """Explore a connected region in the mask"""
-        visited = set()
-        stack = [(start_x, start_y)]
-        x_min, x_max = start_x, start_x
-        y_min, y_max = start_y, start_y
-        
-        while stack:
-            x, y = stack.pop()
-            if (x, y) in visited or x < 0 or x >= width or y < 0 or y >= height or not mask[y, x]:
-                continue
-            
-            visited.add((x, y))
-            x_min = min(x_min, x)
-            x_max = max(x_max, x)
-            y_min = min(y_min, y)
-            y_max = max(y_max, y)
-            
-            # Explore neighbors
-            for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-                stack.append((x + dx, y + dy))
-        
-        if len(visited) > 10:  # Minimum region size
-            return (x_min, y_min, x_max, y_max)
-        return None
-
-    def find_vertical_cluster(self, edge_points, start_x, start_y, width, height):
-        """Find vertical clusters of edge points"""
-        x_coords = []
-        y_coords = []
-        
-        for i in range(len(edge_points[0])):
-            x, y = edge_points[1][i], edge_points[0][i]
-            if abs(x - start_x) < 10:  # Nearby in x direction
-                x_coords.append(x)
-                y_coords.append(y)
-        
-        if len(y_coords) > 5:  # Minimum cluster size
-            return (np.mean(x_coords), min(y_coords), max(y_coords))
-        return None
-
-    def merge_similar_candles(self, candles):
-        """Merge nearby candles that likely represent the same candle"""
-        if not candles:
-            return []
-            
-        merged = []
-        used_indices = set()
-        
-        for i, candle1 in enumerate(candles):
-            if i in used_indices:
-                continue
-                
-            similar_candles = [candle1]
-            
-            for j, candle2 in enumerate(candles[i+1:], i+1):
-                if j in used_indices:
-                    continue
-                    
-                # Check if candles are close (same candle detected by multiple methods)
-                distance = abs(candle1['x'] - candle2['x'])
-                if distance < 20:  # Pixels
-                    similar_candles.append(candle2)
-                    used_indices.add(j)
-            
-            # Merge similar candles
-            if len(similar_candles) > 1:
-                avg_x = sum(c['x'] for c in similar_candles) // len(similar_candles)
-                min_high = min(c['high'] for c in similar_candles)
-                max_low = max(c['low'] for c in similar_candles)
-                avg_confidence = sum(c['confidence'] for c in similar_candles) / len(similar_candles)
-                
-                merged.append({
-                    'x': avg_x,
-                    'high': min_high,
-                    'low': max_low,
-                    'width': 20,
-                    'height': max_low - min_high,
-                    'type': 'merged',
-                    'confidence': min(avg_confidence * 1.2, 1.0)  # Boost confidence
-                })
-            else:
-                merged.append(candle1)
-            
-            used_indices.add(i)
-        
-        return merged
+        return regions
 
 class FVGDetector:
     def __init__(self):
@@ -338,7 +182,7 @@ class ChartAnalyzer:
                 'timeframe': '1D',
                 'auto_annotations': real_fvgs,
                 'candles_detected': len(real_candles),
-                'real_candles': real_candles,  # Send candle data to frontend
+                'real_candles': real_candles,
                 'patterns_found': [
                     {
                         'name': 'Real Fair Value Gap (FVG)',
@@ -396,7 +240,7 @@ class SelfLearningAI:
         self.knowledge_base = {}
         self.learning_active = False
         self.ict_patterns = ICTPatterns()
-        self.chart_analyzer = ChartAnalyzer()  # Now with real detection!
+        self.chart_analyzer = ChartAnalyzer()
         
     def start_learning(self):
         """Start autonomous learning"""
