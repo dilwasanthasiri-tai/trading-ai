@@ -794,7 +794,7 @@ def health_check():
     return jsonify({
         "status": "healthy ✅",
         "service": "ICT Trading AI - Real Candle FVG Detection",
-        "ai_learning': ai.learning_active,
+        "ai_learning": ai.learning_active,
         "symbols_tracked": len(ai.knowledge_base)
     })
 
