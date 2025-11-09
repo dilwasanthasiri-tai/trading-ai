@@ -12,167 +12,6 @@ app = Flask(__name__)
 if not os.path.exists('static/uploads'):
     os.makedirs('static/uploads')
 
-# Self-learning AI storage
-AI_DATA_FILE = 'ai_learning_data.json'
-
-class AutoLearningAI:
-    def __init__(self):
-        self.learning_data = self.load_learning_data()
-        print(f"🧠 Auto-Learning AI Loaded | Accuracy: {self.learning_data['accuracy']:.1f}%")
-        
-    def load_learning_data(self):
-        """Load AI learning data from file"""
-        try:
-            if os.path.exists(AI_DATA_FILE):
-                with open(AI_DATA_FILE, 'r') as f:
-                    return json.load(f)
-        except:
-            pass
-        return {
-            'total_predictions': 0,
-            'correct_predictions': 0,
-            'accuracy': 0.0,
-            'pattern_memory': {},
-            'market_conditions': {},
-            'confidence_boost': 1.0,
-            'learning_history': [],
-            'performance_trend': 'STABLE',
-            'patterns_learned': 0
-        }
-    
-    def save_learning_data(self):
-        """Save AI learning data to file"""
-        try:
-            with open(AI_DATA_FILE, 'w') as f:
-                json.dump(self.learning_data, f, indent=2)
-        except:
-            pass
-    
-    def auto_learn_from_analysis(self, features, predictions, market_structure):
-        """AI automatically learns from each analysis"""
-        self.learning_data['total_predictions'] += 1
-        
-        # Create pattern signature from current market conditions
-        pattern_key = self.create_pattern_signature(features, market_structure)
-        
-        # Track this pattern
-        if pattern_key not in self.learning_data['pattern_memory']:
-            self.learning_data['pattern_memory'][pattern_key] = {
-                'bullish_success': 0,
-                'bearish_success': 0,
-                'total_occurrences': 0,
-                'last_analysis': datetime.now().isoformat()
-            }
-            self.learning_data['patterns_learned'] = len(self.learning_data['pattern_memory'])
-        
-        # Analyze prediction accuracy based on market structure
-        market_bias = market_structure.get('current_bias', 'NEUTRAL')
-        predicted_bias = predictions.get('overall_bias', 'NEUTRAL')
-        
-        # Learn from prediction alignment with market structure
-        if market_bias == predicted_bias:
-            self.learning_data['correct_predictions'] += 1
-            if predicted_bias == 'BULLISH':
-                self.learning_data['pattern_memory'][pattern_key]['bullish_success'] += 1
-            else:
-                self.learning_data['pattern_memory'][pattern_key]['bearish_success'] += 1
-        
-        self.learning_data['pattern_memory'][pattern_key]['total_occurrences'] += 1
-        self.learning_data['pattern_memory'][pattern_key]['last_analysis'] = datetime.now().isoformat()
-        
-        # Update accuracy
-        total = self.learning_data['total_predictions']
-        correct = self.learning_data['correct_predictions']
-        self.learning_data['accuracy'] = (correct / total * 100) if total > 0 else 0
-        
-        # Adjust confidence based on performance
-        if self.learning_data['accuracy'] > 75:
-            self.learning_data['confidence_boost'] = min(2.0, 1.0 + (self.learning_data['accuracy'] - 75) / 25)
-            self.learning_data['performance_trend'] = 'IMPROVING'
-        elif self.learning_data['accuracy'] > 60:
-            self.learning_data['confidence_boost'] = 1.0 + (self.learning_data['accuracy'] - 60) / 40
-            self.learning_data['performance_trend'] = 'LEARNING'
-        else:
-            self.learning_data['confidence_boost'] = max(0.7, self.learning_data['confidence_boost'] * 0.99)
-            self.learning_data['performance_trend'] = 'STABLE'
-        
-        # Save learning history
-        self.learning_data['learning_history'].append({
-            'timestamp': datetime.now().isoformat(),
-            'pattern': pattern_key,
-            'market_bias': market_bias,
-            'predicted_bias': predicted_bias,
-            'accuracy': self.learning_data['accuracy'],
-            'confidence_boost': self.learning_data['confidence_boost']
-        })
-        
-        # Keep history manageable
-        if len(self.learning_data['learning_history']) > 1000:
-            self.learning_data['learning_history'] = self.learning_data['learning_history'][-1000:]
-        
-        self.save_learning_data()
-        
-        print(f"🧠 AI Learned: {pattern_key} | Accuracy: {self.learning_data['accuracy']:.1f}%")
-    
-    def create_pattern_signature(self, features, market_structure):
-        """Create pattern signature for learning"""
-        trend = features.get('trend_direction', 0)
-        green_pct = features.get('green_percentage', 0.5)
-        red_pct = features.get('red_percentage', 0.5)
-        market_bias = market_structure.get('current_bias', 'NEUTRAL')
-        higher_highs = market_structure.get('higher_highs', False)
-        higher_lows = market_structure.get('higher_lows', False)
-        
-        trend_level = 'BULL' if trend > 0 else 'BEAR' if trend < 0 else 'NEUTRAL'
-        green_level = int(green_pct * 5)  # 0-5 scale
-        red_level = int(red_pct * 5)     # 0-5 scale
-        bias_level = market_bias[:3]     # BUL, BEA, NEU
-        structure = 'UP' if higher_highs and higher_lows else 'DOWN' if not higher_highs and not higher_lows else 'MIXED'
-        
-        return f"{trend_level}_{bias_level}_G{green_level}_R{red_level}_{structure}"
-    
-    def enhance_prediction_confidence(self, features, market_structure, base_prediction):
-        """Enhance prediction using learned patterns"""
-        pattern_key = self.create_pattern_signature(features, market_structure)
-        
-        # Use learned patterns if available
-        if pattern_key in self.learning_data['pattern_memory']:
-            pattern_data = self.learning_data['pattern_memory'][pattern_key]
-            bullish_score = pattern_data['bullish_success']
-            bearish_score = pattern_data['bearish_success']
-            
-            if bullish_score > bearish_score and base_prediction['overall_bias'] == 'BULLISH':
-                # Boost confidence for learned bullish patterns
-                for candle in base_prediction['candles']:
-                    if candle['direction'] == 'BULLISH':
-                        candle['probability'] = min(95, candle['probability'] * self.learning_data['confidence_boost'])
-                base_prediction['ai_enhancement'] = 'LEARNED_BULLISH_PATTERN'
-                
-            elif bearish_score > bullish_score and base_prediction['overall_bias'] == 'BEARISH':
-                # Boost confidence for learned bearish patterns
-                for candle in base_prediction['candles']:
-                    if candle['direction'] == 'BEARISH':
-                        candle['probability'] = min(95, candle['probability'] * self.learning_data['confidence_boost'])
-                base_prediction['ai_enhancement'] = 'LEARNED_BEARISH_PATTERN'
-        
-        base_prediction['ai_confidence_boost'] = round(self.learning_data['confidence_boost'], 2)
-        return base_prediction
-    
-    def get_ai_status(self):
-        """Get AI learning status"""
-        return {
-            'total_predictions': self.learning_data['total_predictions'],
-            'correct_predictions': self.learning_data['correct_predictions'],
-            'accuracy': round(self.learning_data['accuracy'], 1),
-            'confidence_boost': round(self.learning_data['confidence_boost'], 2),
-            'performance_trend': self.learning_data['performance_trend'],
-            'patterns_learned': self.learning_data['patterns_learned'],
-            'learning_rate': 'HIGH' if self.learning_data['total_predictions'] < 100 else 'STABLE'
-        }
-
-# Initialize Auto-Learning AI
-auto_ai = AutoLearningAI()
-
 class ICTMarketPredictor:
     def __init__(self, image_data=None):
         self.image_data = image_data
@@ -189,28 +28,9 @@ class ICTMarketPredictor:
         }
     
     def complete_ict_analysis(self):
-        """Complete ICT analysis with AI-enhanced 3-candle prediction"""
-        # Get base analysis
-        market_structure = self.analyze_market_structure()
-        base_prediction = self.predict_next_three_candles()
-        
-        # Enhance prediction with AI learning
-        ai_enhanced_prediction = auto_ai.enhance_prediction_confidence(
-            self.chart_features or {},
-            market_structure,
-            base_prediction
-        )
-        
-        # AI automatically learns from this analysis
-        if self.chart_features:
-            auto_ai.auto_learn_from_analysis(
-                self.chart_features,
-                ai_enhanced_prediction,
-                market_structure
-            )
-        
+        """Complete ICT analysis with 3-candle prediction"""
         return {
-            'market_structure': market_structure,
+            'market_structure': self.analyze_market_structure(),
             'key_levels': self.find_ict_levels(),
             'order_blocks': self.find_order_blocks(),
             'fair_value_gaps': self.find_fvgs(),
@@ -221,8 +41,7 @@ class ICTMarketPredictor:
             'price_action': self.analyze_price_action(),
             'market_manipulation': self.analyze_manipulation(),
             'chart_analysis': self.chart_features or {'image_uploaded': False},
-            'three_candle_prediction': ai_enhanced_prediction,
-            'ai_learning_status': auto_ai.get_ai_status(),
+            'three_candle_prediction': self.predict_next_three_candles(),
             'trading_plan': self.create_trading_plan(),
             'risk_management': self.calculate_risk()
         }
@@ -478,9 +297,7 @@ class ICTMarketPredictor:
                 f"Candle 1: {candles[0]['direction']} move towards {candles[0]['key_levels']['resistance' if candles[0]['direction'] == 'BULLISH' else 'support']}",
                 f"Candle 2: {candles[1]['direction']} continuation with {candles[1]['probability']}% probability",
                 f"Candle 3: {candles[2]['direction']} closing at {candles[2]['close']}"
-            ],
-            'ai_enhancement': 'BASE_PREDICTION',
-            'ai_confidence_boost': 1.0
+            ]
         }
     
     def create_trading_plan(self):
@@ -525,15 +342,12 @@ class ICTMarketPredictor:
 @app.route('/')
 def home():
     return jsonify({
-        "message": "🤖 Complete ICT Market Analyzer with Auto-Learning AI",
+        "message": "🤖 Complete ICT Market Analyzer",
         "status": "ACTIVE ✅", 
-        "version": "9.0 - Auto-Learning AI Enhanced",
-        "ai_status": auto_ai.get_ai_status(),
+        "version": "8.0 - Full ICT Analysis",
         "features": [
             "Complete ICT Theory Implementation",
             "3-Candle Price Prediction", 
-            "Auto-Learning AI Brain",
-            "Pattern Recognition & Memory",
             "Market Structure Analysis",
             "Order Blocks & FVGs",
             "Liquidity Analysis",
@@ -543,7 +357,6 @@ def home():
         "endpoints": {
             "/analyze": "POST - Upload image for complete ICT analysis",
             "/predict": "POST - Quick 3-candle prediction",
-            "/ai-status": "GET - AI learning status",
             "/web-analyzer": "GET - Web Interface"
         }
     })
@@ -553,13 +366,8 @@ def health_check():
     return jsonify({
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "version": "9.0",
-        "ai_accuracy": f"{auto_ai.learning_data['accuracy']:.1f}%"
+        "version": "8.0"
     })
-
-@app.route('/ai-status')
-def ai_status():
-    return jsonify(auto_ai.get_ai_status())
 
 @app.route('/analyze', methods=['POST'])
 def complete_analysis():
@@ -590,20 +398,18 @@ def quick_prediction():
         return jsonify({
             'three_candle_prediction': analysis['three_candle_prediction'],
             'trading_plan': analysis['trading_plan'],
-            'market_structure': analysis['market_structure'],
-            'ai_status': analysis['ai_learning_status']
+            'market_structure': analysis['market_structure']
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 400
 
-# KEEP YOUR EXACT SAME WEB INTERFACE - JUST ADD AI STATUS SECTION
 @app.route('/web-analyzer')
 def web_analyzer():
     return '''
     <!DOCTYPE html>
     <html>
     <head>
-        <title>🎯 Complete ICT Market Analyzer with Auto-Learning AI</title>
+        <title>🎯 Complete ICT Market Analyzer</title>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
@@ -640,13 +446,6 @@ def web_analyzer():
                 cursor: pointer;
                 margin: 20px 0;
                 width: 100%;
-            }
-            .ai-status {
-                background: #e7f3ff;
-                padding: 15px;
-                border-radius: 10px;
-                margin: 10px 0;
-                border-left: 4px solid #17a2b8;
             }
             .section {
                 background: #f8f9fa;
@@ -694,25 +493,12 @@ def web_analyzer():
                 border-radius: 5px;
                 border-left: 3px solid #ffc107;
             }
-            .learning-badge {
-                background: #17a2b8;
-                color: white;
-                padding: 5px 10px;
-                border-radius: 15px;
-                font-size: 12px;
-                margin-left: 10px;
-            }
         </style>
     </head>
     <body>
         <div class="container">
-            <h1>🎯 Complete ICT Market Analyzer with Auto-Learning AI</h1>
-            <p><strong>AI learns automatically from every analysis - No teaching required! 🧠</strong></p>
-            
-            <div class="ai-status" id="aiStatus">
-                <h3>🤖 Auto-Learning AI Status</h3>
-                <p>Loading AI status...</p>
-            </div>
+            <h1>🎯 Complete ICT Market Analyzer</h1>
+            <p><strong>Upload Chart for Full ICT Analysis & 3-Candle Prediction</strong></p>
             
             <div class="upload-area">
                 <input type="file" id="imageUpload" accept="image/*" style="display: none;">
@@ -726,13 +512,13 @@ def web_analyzer():
 
             <div style="text-align: center;">
                 <button class="analyze-btn" onclick="runCompleteAnalysis()" id="analyzeBtn" disabled>
-                    🤖 RUN COMPLETE ICT ANALYSIS WITH AI
+                    🤖 RUN COMPLETE ICT ANALYSIS
                 </button>
             </div>
 
             <div id="loading" style="display: none; text-align: center; padding: 20px;">
                 <div class="loading-spinner"></div>
-                <h3>AI Analyzing Market Structure & Learning Patterns...</h3>
+                <h3>Analyzing Market Structure, Order Blocks, FVGs, Liquidity...</h3>
             </div>
 
             <div id="results" style="display: none;"></div>
@@ -740,29 +526,6 @@ def web_analyzer():
 
         <script>
             let uploadedImageData = null;
-
-            // Load AI status on page load
-            loadAIStatus();
-
-            async function loadAIStatus() {
-                try {
-                    const response = await fetch('/ai-status');
-                    const data = await response.json();
-                    document.getElementById('aiStatus').innerHTML = `
-                        <h3>🤖 Auto-Learning AI Status <span class="learning-badge">LIVE</span></h3>
-                        <div class="grid-4">
-                            <div><strong>Total Predictions:</strong> ${data.total_predictions}</div>
-                            <div><strong>Accuracy:</strong> ${data.accuracy}%</div>
-                            <div><strong>Patterns Learned:</strong> ${data.patterns_learned}</div>
-                            <div><strong>Confidence Boost:</strong> ${data.confidence_boost}x</div>
-                            <div><strong>Performance:</strong> ${data.performance_trend}</div>
-                            <div><strong>Learning Rate:</strong> ${data.learning_rate}</div>
-                        </div>
-                    `;
-                } catch (error) {
-                    console.error('Failed to load AI status:', error);
-                }
-            }
 
             document.getElementById('imageUpload').addEventListener('change', function(e) {
                 const file = e.target.files[0];
@@ -806,7 +569,6 @@ def web_analyzer():
                         displayCompleteAnalysis(data.analysis);
                         loading.style.display = 'none';
                         results.style.display = 'block';
-                        loadAIStatus(); // Refresh AI status
                     }, 2000);
                     
                 } catch (error) {
@@ -820,32 +582,9 @@ def web_analyzer():
                 const prediction = analysis.three_candle_prediction;
                 
                 document.getElementById('results').innerHTML = `
-                    <!-- AI LEARNING STATUS -->
-                    <div class="section">
-                        <h2>🧠 AUTO-LEARNING AI STATUS</h2>
-                        <div class="grid-4">
-                            <div>
-                                <p><strong>Total Predictions:</strong> ${analysis.ai_learning_status.total_predictions}</p>
-                                <p><strong>Accuracy:</strong> ${analysis.ai_learning_status.accuracy}%</p>
-                            </div>
-                            <div>
-                                <p><strong>Patterns Learned:</strong> ${analysis.ai_learning_status.patterns_learned}</p>
-                                <p><strong>Confidence Boost:</strong> ${analysis.ai_learning_status.confidence_boost}x</p>
-                            </div>
-                            <div>
-                                <p><strong>Performance:</strong> ${analysis.ai_learning_status.performance_trend}</p>
-                                <p><strong>Learning Rate:</strong> ${analysis.ai_learning_status.learning_rate}</p>
-                            </div>
-                            <div>
-                                <p><strong>AI Enhancement:</strong> ${prediction.ai_enhancement || 'BASE_ANALYSIS'}</p>
-                                <p><strong>Confidence Boost:</strong> ${prediction.ai_confidence_boost}x</p>
-                            </div>
-                        </div>
-                    </div>
-
                     <!-- 3-CANDLE PREDICTION -->
                     <div class="section">
-                        <h2>🎯 AI-ENHANCED 3-CANDLE PREDICTION</h2>
+                        <h2>🎯 NEXT 3 CANDLE PREDICTION</h2>
                         <p><strong>Current Price:</strong> ${prediction.current_price} | <strong>Overall Bias:</strong> ${prediction.overall_bias}</p>
                         
                         <div class="grid-3">
@@ -866,7 +605,6 @@ def web_analyzer():
                         </div>
                     </div>
 
-                    <!-- KEEP ALL YOUR EXISTING SECTIONS EXACTLY THE SAME -->
                     <!-- MARKET STRUCTURE -->
                     <div class="section">
                         <h2>🏛️ MARKET STRUCTURE</h2>
@@ -968,7 +706,7 @@ def web_analyzer():
     '''
 
 if __name__ == '__main__':
-    print("🚀 Complete ICT Market Analyzer with Auto-Learning AI Started!")
-    print("🧠 AI is learning automatically from every analysis!")
+    print("🚀 Complete ICT Market Analyzer Started!")
+    print("📊 Features: Full ICT Analysis + 3-Candle Prediction")
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
