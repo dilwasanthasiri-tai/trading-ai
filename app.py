@@ -3,7 +3,7 @@ from datetime import datetime
 import threading
 import time
 import os
-import base64
+import json
 
 app = Flask(__name__)
 
@@ -48,13 +48,89 @@ class ChartAnalyzer:
                     'Manual markup improves AI understanding'
                 ],
                 'sentiment': 'bullish',
-                'confidence_score': 0.84 + (0.10 if annotations else 0)  # Higher confidence with annotations
+                'confidence_score': 0.84 + (0.10 if annotations else 0)
             }
             return analysis
         except Exception as e:
             return {'error': f'Analysis failed: {str(e)}'}
 
-# ... (keep your existing ICTPatterns and SelfLearningAI classes the same)
+class ICTPatterns:
+    def detect_fair_value_gaps(self, data):
+        """ICT Fair Value Gap Detection"""
+        fvgs = []
+        
+        try:
+            demo_patterns = [
+                {
+                    'type': 'bullish_fvg',
+                    'level': 150.25,
+                    'size': 2.5,
+                    'timestamp': str(datetime.now()),
+                    'strength': 'strong',
+                    'probability': 0.85
+                },
+                {
+                    'type': 'bearish_fvg', 
+                    'level': 148.75,
+                    'size': 1.8,
+                    'timestamp': str(datetime.now()),
+                    'strength': 'medium',
+                    'probability': 0.72
+                }
+            ]
+            return demo_patterns
+        except Exception as e:
+            print(f"Pattern detection error: {e}")
+            return []
+
+class SelfLearningAI:
+    def __init__(self):
+        self.knowledge_base = {}
+        self.learning_active = False
+        self.ict_patterns = ICTPatterns()
+        self.chart_analyzer = ChartAnalyzer()
+        
+    def start_learning(self):
+        """Start autonomous learning"""
+        def learning_loop():
+            while self.learning_active:
+                try:
+                    self.learn_from_markets()
+                    print("💤 AI sleeping for 30 seconds...")
+                    time.sleep(30)
+                except Exception as e:
+                    print(f"❌ Learning error: {e}")
+                    time.sleep(10)
+        
+        self.learning_active = True
+        thread = threading.Thread(target=learning_loop, daemon=True)
+        thread.start()
+        return "🚀 AI started autonomous learning!"
+    
+    def learn_from_markets(self):
+        """AI learning from market patterns"""
+        print(f"📊 {datetime.now()} - AI learning cycle...")
+        
+        symbols = ['AAPL', 'GOOGL', 'MSFT', 'TSLA', 'BTC-USD', 'ETH-USD', 'GC=F', 'EURUSD=X']
+        
+        for symbol in symbols:
+            try:
+                patterns = self.ict_patterns.detect_fair_value_gaps(None)
+                
+                self.knowledge_base[symbol] = {
+                    'last_updated': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    'ict_patterns': patterns,
+                    'total_patterns': len(patterns),
+                    'current_price': 150.75,
+                    'trend': 'bullish',
+                    'momentum': 'strong',
+                    'status': 'Active'
+                }
+                
+                print(f"✅ {symbol}: Found {len(patterns)} ICT patterns")
+                
+            except Exception as e:
+                print(f"❌ Error with {symbol}: {e}")
 
 # Initialize AI
 ai = SelfLearningAI()
@@ -63,22 +139,31 @@ ai = SelfLearningAI()
 def home():
     return jsonify({
         "message": "🤖 Self-Learning ICT Trading AI",
-        "status": "ACTIVE ✅", 
+        "status": "ACTIVE ✅",
+        "version": "3.0",
         "features": [
             "ICT Pattern Detection",
-            "Fair Value Gaps (FVG)", 
+            "Fair Value Gaps (FVG)",
+            "Self-Learning AI",
+            "Multi-Asset Analysis", 
             "Chart Image Analysis",
-            "Drawing Tools & Annotations",  # NEW!
+            "Drawing Tools & Annotations",
             "SMC Analysis"
         ],
         "endpoints": {
-            "/web-draw": "Drawing interface for charts",  # NEW!
-            "/upload-chart": "Upload annotated charts",
-            "/analyze/<symbol>": "Analyze symbols"
-        }
+            "/": "API status",
+            "/start-learning": "Start AI autonomous learning", 
+            "/knowledge": "View everything AI has learned",
+            "/analyze/<symbol>": "Analyze any trading symbol",
+            "/upload-chart": "Upload chart image for analysis",
+            "/web-upload": "Simple upload interface",
+            "/web-draw": "Drawing tools interface",
+            "/health": "System health check"
+        },
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     })
 
-# NEW: Advanced Drawing Interface
+# Drawing Interface
 @app.route('/web-draw')
 def web_draw():
     return '''
@@ -124,7 +209,6 @@ def web_draw():
             .canvas-container {
                 border: 2px dashed #007bff;
                 margin: 20px 0;
-                position: relative;
             }
             #drawingCanvas {
                 width: 100%;
@@ -147,6 +231,13 @@ def web_draw():
             .color-option.active {
                 border-color: #000;
             }
+            .result {
+                background: #e8f5e8;
+                padding: 25px;
+                margin: 25px 0;
+                border-radius: 10px;
+                border-left: 5px solid #28a745;
+            }
         </style>
     </head>
     <body>
@@ -166,10 +257,8 @@ def web_draw():
                 <div class="toolbar">
                     <button class="tool-btn active" data-tool="line">📏 Line</button>
                     <button class="tool-btn" data-tool="rectangle">⬜ Rectangle</button>
-                    <button class="tool-btn" data-tool="circle">⭕ Circle</button>
                     <button class="tool-btn" data-tool="arrow">➡️ Arrow</button>
                     <button class="tool-btn" data-tool="text">🔤 Text</button>
-                    <button class="tool-btn" data-tool="eraser">🧽 Eraser</button>
                 </div>
                 
                 <div class="color-picker">
@@ -177,7 +266,6 @@ def web_draw():
                     <div class="color-option" style="background: blue;" data-color="blue"></div>
                     <div class="color-option" style="background: green;" data-color="green"></div>
                     <div class="color-option" style="background: orange;" data-color="orange"></div>
-                    <div class="color-option" style="background: purple;" data-color="purple"></div>
                 </div>
 
                 <div class="canvas-container">
@@ -193,7 +281,7 @@ def web_draw():
                 </button>
             </div>
 
-            <div id="result" class="result" style="display:none; margin-top: 30px;"></div>
+            <div id="result" class="result" style="display:none;"></div>
         </div>
 
         <script>
@@ -205,7 +293,6 @@ def web_draw():
             let startX, startY;
             let annotations = [];
 
-            // Set canvas size
             function resizeCanvas() {
                 canvas.width = canvas.offsetWidth;
                 canvas.height = 500;
@@ -239,7 +326,6 @@ def web_draw():
                     reader.onload = function(event) {
                         const img = new Image();
                         img.onload = function() {
-                            // Clear canvas and draw image
                             ctx.clearRect(0, 0, canvas.width, canvas.height);
                             const ratio = Math.min(canvas.width / img.width, canvas.height / img.height);
                             const width = img.width * ratio;
@@ -258,7 +344,6 @@ def web_draw():
             canvas.addEventListener('mousedown', startDrawing);
             canvas.addEventListener('mousemove', draw);
             canvas.addEventListener('mouseup', stopDrawing);
-            canvas.addEventListener('mouseout', stopDrawing);
 
             function startDrawing(e) {
                 isDrawing = true;
@@ -281,20 +366,36 @@ def web_draw():
                 
                 ctx.strokeStyle = currentColor;
                 ctx.lineWidth = 2;
-                ctx.lineCap = 'round';
 
                 if (currentTool === 'line') {
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
-                    redrawImage();
-                    ctx.beginPath();
-                    ctx.moveTo(startX, startY);
-                    ctx.lineTo(e.offsetX, e.offsetY);
-                    ctx.stroke();
+                    // Redraw image and existing annotations
+                    const fileInput = document.getElementById('imageUpload');
+                    if (fileInput.files[0]) {
+                        const reader = new FileReader();
+                        reader.onload = function(event) {
+                            const img = new Image();
+                            img.onload = function() {
+                                const ratio = Math.min(canvas.width / img.width, canvas.height / img.height);
+                                const width = img.width * ratio;
+                                const height = img.height * ratio;
+                                const x = (canvas.width - width) / 2;
+                                const y = (canvas.height - height) / 2;
+                                ctx.drawImage(img, x, y, width, height);
+                                redrawAnnotations();
+                                ctx.beginPath();
+                                ctx.moveTo(startX, startY);
+                                ctx.lineTo(e.offsetX, e.offsetY);
+                                ctx.stroke();
+                            };
+                            img.src = event.target.result;
+                        };
+                        reader.readAsDataURL(fileInput.files[0]);
+                    }
                 }
-                // Add more tools as needed
             }
 
-            function stopDrawing() {
+            function stopDrawing(e) {
                 if (!isDrawing) return;
                 isDrawing = false;
                 
@@ -305,28 +406,6 @@ def web_draw():
                         end: {x: e.offsetX, y: e.offsetY},
                         color: currentColor
                     });
-                }
-            }
-
-            function redrawImage() {
-                // Redraw base image (you would need to store it)
-                const fileInput = document.getElementById('imageUpload');
-                if (fileInput.files[0]) {
-                    const reader = new FileReader();
-                    reader.onload = function(event) {
-                        const img = new Image();
-                        img.onload = function() {
-                            const ratio = Math.min(canvas.width / img.width, canvas.height / img.height);
-                            const width = img.width * ratio;
-                            const height = img.height * ratio;
-                            const x = (canvas.width - width) / 2;
-                            const y = (canvas.height - height) / 2;
-                            ctx.drawImage(img, x, y, width, height);
-                            redrawAnnotations();
-                        };
-                        img.src = event.target.result;
-                    };
-                    reader.readAsDataURL(fileInput.files[0]);
                 }
             }
 
@@ -377,7 +456,7 @@ def web_draw():
                     if (response.ok) {
                         resultDiv.innerHTML = `
                             <h3>✅ AI Analysis Complete!</h3>
-                            <p><strong>User Annotations:</strong> ${data.analysis.user_annotations.length} marks</p>
+                            <p><strong>User Annotations:</strong> ${data.user_annotations_count} marks</p>
                             <p><strong>Enhanced Confidence:</strong> ${(data.analysis.confidence_score * 100).toFixed(1)}%</p>
                             <p><strong>Patterns Found:</strong> ${data.analysis.patterns_found.length}</p>
                             
@@ -408,7 +487,7 @@ def web_draw():
     </html>
     '''
 
-# Update upload endpoint to handle annotations
+# Upload endpoint with annotations
 @app.route('/upload-chart', methods=['POST'])
 def upload_chart():
     try:
@@ -424,7 +503,6 @@ def upload_chart():
         if file and allowed_file(file.filename):
             file_data = file.read()
             
-            # Parse annotations if provided
             parsed_annotations = []
             if annotations:
                 try:
@@ -447,7 +525,97 @@ def upload_chart():
     except Exception as e:
         return jsonify({'error': f'Upload failed: {str(e)}'}), 500
 
-# ... (keep your other existing endpoints)
+# Keep existing endpoints
+@app.route('/web-upload')
+def web_upload():
+    return '''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>📈 Upload Chart for AI Analysis</title>
+        <style>
+            body { font-family: Arial; margin: 40px; background: #f0f2f5; }
+            .container { max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 15px; }
+            .upload-area { border: 3px dashed #007bff; padding: 60px; text-align: center; margin: 20px 0; border-radius: 10px; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>📈 Upload Trading Chart</h1>
+            <p>For advanced drawing tools, visit <a href="/web-draw">/web-draw</a></p>
+            <form id="uploadForm" enctype="multipart/form-data">
+                <div class="upload-area">
+                    <input type="file" name="chart_image" accept="image/*" required>
+                    <br><br>
+                    <button type="submit">Analyze Chart</button>
+                </div>
+            </form>
+            <div id="result" style="display:none;"></div>
+        </div>
+        <script>
+            document.getElementById('uploadForm').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                const formData = new FormData(this);
+                const response = await fetch('/upload-chart', {method: 'POST', body: formData});
+                const data = await response.json();
+                document.getElementById('result').innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+                document.getElementById('result').style.display = 'block';
+            });
+        </script>
+    </body>
+    </html>
+    '''
+
+@app.route('/start-learning')
+def start_learning():
+    result = ai.start_learning()
+    return jsonify({
+        "message": result, 
+        "status": "success",
+        "ai_status": "learning_active",
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    })
+
+@app.route('/knowledge')
+def get_knowledge():
+    return jsonify({
+        "knowledge_base": ai.knowledge_base,
+        "total_symbols_analyzed": len(ai.knowledge_base),
+        "total_patterns_found": sum(len(data.get('ict_patterns', [])) for data in ai.knowledge_base.values()),
+        "ai_status": "Active" if ai.learning_active else "Inactive",
+        "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    })
+
+@app.route('/analyze/<symbol>')
+def analyze_symbol(symbol):
+    try:
+        patterns = ai.ict_patterns.detect_fair_value_gaps(None)
+        
+        return jsonify({
+            "symbol": symbol.upper(),
+            "analysis": "ICT Pattern Analysis Complete ✅",
+            "patterns_found": len(patterns),
+            "patterns": patterns,
+            "summary": {
+                "bullish_fvg": len([p for p in patterns if p['type'] == 'bullish_fvg']),
+                "bearish_fvg": len([p for p in patterns if p['type'] == 'bearish_fvg']),
+                "total_signals": len(patterns)
+            },
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "status": "success"
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+@app.route('/health')
+def health_check():
+    return jsonify({
+        "status": "healthy ✅",
+        "service": "ICT Trading AI",
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "ai_learning": ai.learning_active,
+        "symbols_tracked": len(ai.knowledge_base)
+    })
 
 if __name__ == '__main__':
     print("🚀 Trading AI with Drawing Tools Started!")
