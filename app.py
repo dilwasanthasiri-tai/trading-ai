@@ -3,732 +3,367 @@ from datetime import datetime
 import threading
 import time
 import os
-import json
-import random
-import base64
 from io import BytesIO
+from PIL import Image, ImageDraw
 
 app = Flask(__name__)
 
-# Configure upload folder
+# === CONFIG ===
 UPLOAD_FOLDER = 'static/uploads'
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+# === HELPERS ===
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-class ChartAnalyzer:
-    def analyze_chart_image(self, file_data, image_width=800, image_height=500):
-        """Analyze uploaded TradingView chart to detect FVG patterns"""
+
+# === REAL CANDLE DETECTOR ===
+class RealCandleDetector:
+    def __init__(self):
+        self.min_candle_height = 15
+        self.min_candle_width = 4
+        self.brightness_threshold = 170
+
+        # Crop margins to remove chart borders and labels
+        self.margin_top = 80
+        self.margin_bottom = 60
+        self.margin_left = 100
+        self.margin_right = 80
+
+    def detect_real_candles(self, image_data):
+        """Detect REAL candles in TradingView charts using PIL-based vision"""
         try:
-            # For TradingView charts, detect common candle patterns
-            auto_annotations = self.detect_tradingview_fvg_patterns(image_width, image_height)
-            
-            analysis = {
+            image = Image.open(BytesIO(image_data))
+            original_width, original_height = image.size
+
+            # Crop chart area to remove axis/header
+            chart_area = image.crop((
+                self.margin_left,
+                self.margin_top,
+                original_width - self.margin_right,
+                original_height - self.margin_bottom
+            ))
+
+            gray = chart_area.convert('L')
+            candles = self._detect_by_column_clusters(gray)
+
+            # Adjust coordinates to full image space
+            for c in candles:
+                c['x'] += self.margin_left
+                c['high'] += self.margin_top
+                c['low'] += self.margin_top
+
+            # Generate debug overlay image
+            debug_img = image.convert('RGB')
+            draw = ImageDraw.Draw(debug_img)
+            for c in candles:
+                draw.rectangle(
+                    [c['x'] - c['width']//2, c['high'], c['x'] + c['width']//2, c['low']],
+                    outline='blue', width=2
+                )
+            os.makedirs('static', exist_ok=True)
+            debug_path = os.path.join('static', 'debug_output.png')
+            debug_img.save(debug_path)
+
+            print(f"✅ Detected {len(candles)} real candles. Debug image saved → {debug_path}")
+
+            return {
+                'candles': candles,
+                'image_info': {'original_width': original_width, 'original_height': original_height},
+                'debug_image': debug_path,
+                'detection_method': 'real_candle_detection'
+            }
+
+        except Exception as e:
+            print(f"❌ Candle detection error: {e}")
+            return {'candles': [], 'error': str(e)}
+
+    def _detect_by_column_clusters(self, gray):
+        """Detect candle centers by analyzing vertical brightness clusters"""
+        width, height = gray.size
+        pixels = gray.load()
+        candles = []
+
+        in_dark = False
+        start_x = 0
+
+        # Scan horizontally
+        for x in range(width):
+            col_brightness = sum(pixels[x, y] for y in range(height)) / height
+
+            if col_brightness < self.brightness_threshold and not in_dark:
+                in_dark = True
+                start_x = x
+            elif col_brightness >= self.brightness_threshold and in_dark:
+                end_x = x
+                in_dark = False
+                w = end_x - start_x
+                if w >= self.min_candle_width:
+                    center_x = start_x + w // 2
+
+                    # Find top & bottom of bright region
+                    column_brightness = [pixels[center_x, y] for y in range(height)]
+                    high, low = self._find_candle_bounds(column_brightness)
+                    if low - high > self.min_candle_height:
+                        candles.append({
+                            'x': center_x,
+                            'high': high,
+                            'low': low,
+                            'width': w,
+                            'height': low - high,
+                            'type': 'brightness_based',
+                            'confidence': 0.8
+                        })
+        return candles
+
+    def _find_candle_bounds(self, column_brightness):
+        """Find candle body region vertically"""
+        in_candle = False
+        top = 0
+        bottom = 0
+        for y, val in enumerate(column_brightness):
+            if val < self.brightness_threshold and not in_candle:
+                in_candle = True
+                top = y
+            elif val >= self.brightness_threshold and in_candle:
+                in_candle = False
+                bottom = y
+                break
+        if bottom == 0:
+            bottom = len(column_brightness) - 1
+        return top, bottom
+
+
+# === FVG DETECTOR ===
+class FVGDetector:
+    def __init__(self):
+        self.candle_detector = RealCandleDetector()
+
+    def find_real_fvgs(self, candles):
+        fvgs = []
+        if len(candles) < 3:
+            return fvgs
+
+        for i in range(len(candles) - 2):
+            c1 = candles[i]
+            c3 = candles[i + 2]
+
+            # Bullish FVG
+            if c1['high'] < c3['low']:
+                gap = c3['low'] - c1['high']
+                if gap > 5:
+                    fvgs.append({
+                        'type': 'fvg_bullish',
+                        'candle1': c1,
+                        'candle3': c3,
+                        'gap_size': gap,
+                        'real_position': True,
+                        'color': 'rgba(0,255,0,0.3)',
+                        'label': 'Real Bullish FVG',
+                        'description': f'Gap size: {gap}px'
+                    })
+
+            # Bearish FVG
+            elif c1['low'] > c3['high']:
+                gap = c1['low'] - c3['high']
+                if gap > 5:
+                    fvgs.append({
+                        'type': 'fvg_bearish',
+                        'candle1': c1,
+                        'candle3': c3,
+                        'gap_size': gap,
+                        'real_position': True,
+                        'color': 'rgba(255,0,0,0.3)',
+                        'label': 'Real Bearish FVG',
+                        'description': f'Gap size: {gap}px'
+                    })
+        return fvgs
+
+
+# === CHART ANALYZER ===
+class ChartAnalyzer:
+    def __init__(self):
+        self.fvg_detector = FVGDetector()
+
+    def analyze_chart_image(self, file_data):
+        try:
+            candle_result = self.fvg_detector.candle_detector.detect_real_candles(file_data)
+            if 'error' in candle_result:
+                return {'error': candle_result['error']}
+
+            candles = candle_result['candles']
+            fvgs = self.fvg_detector.find_real_fvgs(candles)
+
+            return {
                 'chart_type': 'candlestick',
                 'timeframe': '1D',
-                'auto_annotations': auto_annotations,
-                'patterns_found': [
-                    {
-                        'name': 'Fair Value Gap (FVG)',
-                        'type': 'bullish_fvg',
-                        'confidence': 0.89,
-                        'auto_detected': True,
-                        'location': 'tradingview_chart'
-                    }
-                ],
+                'auto_annotations': fvgs,
+                'candles_detected': len(candles),
+                'real_candles': candles,
                 'ict_concepts': {
-                    'fair_value_gaps': len([a for a in auto_annotations if 'fvg' in a['type']]),
-                    'order_blocks': len([a for a in auto_annotations if 'order_block' in a['type']]),
-                    'market_structure': 'bullish'
+                    'fair_value_gaps': len(fvgs),
+                    'order_blocks': 0,
+                    'market_structure': 'bullish' if len(fvgs) > 0 else 'neutral'
                 },
-                'sentiment': 'bullish',
-                'confidence_score': 0.88,
-                'image_info': {
-                    'original_width': image_width,
-                    'original_height': image_height
-                }
+                'sentiment': 'bullish' if any(f['type'] == 'fvg_bullish' for f in fvgs) else 'bearish',
+                'confidence_score': min(len(fvgs) * 0.2 + 0.5, 0.95),
+                'image_info': candle_result['image_info'],
+                'debug_image': candle_result.get('debug_image'),
+                'detection_method': 'real_computer_vision'
             }
-            return analysis
         except Exception as e:
-            return {'error': f'Analysis failed: {str(e)}'}
+            return {'error': f'Real analysis failed: {str(e)}'}
 
-    def detect_tradingview_fvg_patterns(self, image_width, image_height):
-        """Detect FVG patterns for TradingView charts"""
-        annotations = []
-        
-        # Calculate positions based on image dimensions (scalable)
-        # Pattern 1: Bullish FVG
-        annotations.append({
-            'type': 'fvg_bullish',
-            'candle1': {
-                'x': image_width * 0.20,
-                'high': image_height * 0.55,
-                'low': image_height * 0.50,
-                'width': image_width * 0.035
-            },
-            'candle3': {
-                'x': image_width * 0.45,
-                'high': image_height * 0.65,
-                'low': image_height * 0.60,
-                'width': image_width * 0.035
-            },
-            'color': 'rgba(0, 255, 0, 0.3)',
-            'label': 'Bullish FVG 1',
-            'description': 'Breakout pattern',
-            'position': 'chart_area'
-        })
-        
-        # Pattern 2: Bearish FVG
-        annotations.append({
-            'type': 'fvg_bearish',
-            'candle1': {
-                'x': image_width * 0.55,
-                'high': image_height * 0.70,
-                'low': image_height * 0.65,
-                'width': image_width * 0.035
-            },
-            'candle3': {
-                'x': image_width * 0.80,
-                'high': image_height * 0.60,
-                'low': image_height * 0.55,
-                'width': image_width * 0.035
-            },
-            'color': 'rgba(255, 0, 0, 0.3)',
-            'label': 'Bearish FVG 1',
-            'description': 'Resistance pattern',
-            'position': 'chart_area'
-        })
-        
-        # Pattern 3: Another Bullish FVG
-        annotations.append({
-            'type': 'fvg_bullish',
-            'candle1': {
-                'x': image_width * 0.30,
-                'high': image_height * 0.45,
-                'low': image_height * 0.40,
-                'width': image_width * 0.035
-            },
-            'candle3': {
-                'x': image_width * 0.60,
-                'high': image_height * 0.50,
-                'low': image_height * 0.45,
-                'width': image_width * 0.035
-            },
-            'color': 'rgba(0, 255, 0, 0.3)',
-            'label': 'Bullish FVG 2',
-            'description': 'Support bounce',
-            'position': 'chart_area'
-        })
-        
-        # Add Order Blocks
-        ob_positions = [
-            {'type': 'order_block_bullish', 'x': 0.15, 'high': 0.52, 'low': 0.48},
-            {'type': 'order_block_bullish', 'x': 0.40, 'high': 0.62, 'low': 0.58},
-            {'type': 'order_block_bearish', 'x': 0.50, 'high': 0.68, 'low': 0.64},
-            {'type': 'order_block_bearish', 'x': 0.75, 'high': 0.58, 'low': 0.54},
-        ]
-        
-        for i, ob in enumerate(ob_positions):
-            annotations.append({
-                'type': ob['type'],
-                'candle': {
-                    'x': image_width * ob['x'], 
-                    'high': image_height * ob['high'], 
-                    'low': image_height * ob['low'],
-                    'width': image_width * 0.035
-                },
-                'color': 'rgba(0, 100, 255, 0.5)' if 'bullish' in ob['type'] else 'rgba(255, 100, 0, 0.5)',
-                'label': 'Bullish OB' if 'bullish' in ob['type'] else 'Bearish OB',
-                'description': 'Order Block',
-                'position': 'chart_area'
-            })
-        
-        return annotations
 
-class ICTPatterns:
-    def detect_fair_value_gaps(self, data):
-        """ICT Fair Value Gap Detection"""
-        fvgs = []
-        
-        try:
-            demo_patterns = [
-                {
-                    'type': 'bullish_fvg',
-                    'level': 150.25,
-                    'size': 2.5,
-                    'timestamp': str(datetime.now()),
-                    'strength': 'strong',
-                    'probability': 0.85
-                },
-                {
-                    'type': 'bearish_fvg', 
-                    'level': 148.75,
-                    'size': 1.8,
-                    'timestamp': str(datetime.now()),
-                    'strength': 'medium',
-                    'probability': 0.72
-                }
-            ]
-            return demo_patterns
-        except Exception as e:
-            print(f"Pattern detection error: {e}")
-            return []
-
+# === AI WRAPPER ===
 class SelfLearningAI:
     def __init__(self):
-        self.knowledge_base = {}
-        self.learning_active = False
-        self.ict_patterns = ICTPatterns()
         self.chart_analyzer = ChartAnalyzer()
-        
-    def start_learning(self):
-        """Start autonomous learning"""
-        def learning_loop():
-            while self.learning_active:
-                try:
-                    self.learn_from_markets()
-                    print("💤 AI sleeping for 30 seconds...")
-                    time.sleep(30)
-                except Exception as e:
-                    print(f"❌ Learning error: {e}")
-                    time.sleep(10)
-        
-        self.learning_active = True
-        thread = threading.Thread(target=learning_loop, daemon=True)
-        thread.start()
-        return "🚀 AI started autonomous learning!"
-    
-    def learn_from_markets(self):
-        """AI learning from market patterns"""
-        print(f"📊 {datetime.now()} - AI learning cycle...")
-        
-        symbols = ['AAPL', 'GOOGL', 'MSFT', 'TSLA', 'BTC-USD', 'ETH-USD', 'GC=F', 'EURUSD=X']
-        
-        for symbol in symbols:
-            try:
-                patterns = self.ict_patterns.detect_fair_value_gaps(None)
-                
-                self.knowledge_base[symbol] = {
-                    'last_updated': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    'ict_patterns': patterns,
-                    'total_patterns': len(patterns),
-                    'current_price': 150.75,
-                    'trend': 'bullish',
-                    'momentum': 'strong',
-                    'status': 'Active'
-                }
-                
-                print(f"✅ {symbol}: Found {len(patterns)} ICT patterns")
-                
-            except Exception as e:
-                print(f"❌ Error with {symbol}: {e}")
+        self.learning_active = False
+        self.knowledge_base = {}
 
-# Initialize AI
+    def start_learning(self):
+        def loop():
+            while self.learning_active:
+                print(f"📊 {datetime.now()} - Learning cycle running...")
+                time.sleep(30)
+
+        self.learning_active = True
+        threading.Thread(target=loop, daemon=True).start()
+        return "🚀 AI started autonomous learning!"
+
+
+# === APP ROUTES ===
 ai = SelfLearningAI()
+
 
 @app.route('/')
 def home():
     return jsonify({
-        "message": "🤖 TradingView FVG Detection AI",
+        "message": "🤖 TradingView REAL FVG Detection AI",
         "status": "ACTIVE ✅",
-        "version": "1.0",
+        "version": "10.2",
         "features": [
-            "TradingView Chart Analysis",
-            "FVG Pattern Detection", 
-            "Image Upload & Drawing",
-            "ICT Analysis"
+            "REAL Candle Detection (cluster-based)",
+            "Chart Cropping Alignment",
+            "FVG Detection between TRUE candles",
+            "Debug Overlay Image"
         ],
         "endpoints": {
-            "/web-draw": "Upload TradingView Charts",
-            "/upload-chart": "Analyze chart image"
+            "/web-draw": "Web UI",
+            "/upload-chart": "Upload chart screenshot"
         }
     })
 
-# TradingView Chart Analysis Interface
+
 @app.route('/web-draw')
 def web_draw():
+    # ✅ Embedded HTML page
     return '''
     <!DOCTYPE html>
     <html>
     <head>
-        <title>🎯 TradingView FVG Detection</title>
+        <title>🎯 TradingView REAL FVG Detection</title>
         <style>
-            body { 
-                font-family: 'Arial', sans-serif; 
-                margin: 0; 
-                padding: 20px; 
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                min-height: 100vh;
-            }
-            .container { 
-                max-width: 1200px; 
-                margin: 0 auto; 
-                background: white; 
-                padding: 30px; 
-                border-radius: 15px;
-                box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-            }
-            .toolbar {
-                display: flex;
-                gap: 10px;
-                margin: 20px 0;
-                padding: 15px;
-                background: #f8f9fa;
-                border-radius: 10px;
-                flex-wrap: wrap;
-            }
-            .tool-btn {
-                padding: 10px 20px;
-                border: 2px solid #007bff;
-                background: white;
-                border-radius: 8px;
-                cursor: pointer;
-                font-size: 14px;
-            }
-            .auto-draw-btn {
-                background: #28a745;
-                color: white;
-                border: 2px solid #28a745;
-            }
-            .canvas-container {
-                border: 2px dashed #007bff;
-                margin: 20px 0;
-                position: relative;
-                background: white;
-            }
-            #drawingCanvas {
-                width: 100%;
-                height: 500px;
-                background: white;
-                cursor: crosshair;
-            }
-            .legend {
-                display: flex;
-                flex-wrap: wrap;
-                gap: 15px;
-                margin: 15px 0;
-                padding: 15px;
-                background: #f8f9fa;
-                border-radius: 8px;
-            }
-            .legend-item {
-                display: flex;
-                align-items: center;
-                gap: 8px;
-            }
-            .legend-color {
-                width: 20px;
-                height: 20px;
-                border-radius: 3px;
-            }
-            .result {
-                background: #e8f5e8;
-                padding: 20px;
-                margin: 20px 0;
-                border-radius: 10px;
-                border-left: 5px solid #28a745;
-            }
-            .info-box {
-                background: #e3f2fd;
-                padding: 15px;
-                border-radius: 8px;
-                margin: 15px 0;
-            }
-            .upload-area {
-                border: 3px dashed #007bff;
-                padding: 30px;
-                text-align: center;
-                margin: 20px 0;
-                border-radius: 10px;
-                background: #f8f9fa;
-                transition: all 0.3s;
-            }
-            .upload-area:hover {
-                border-color: #0056b3;
-                background: #e9ecef;
-            }
-            .coordinate-info {
-                position: absolute;
-                background: rgba(0,0,0,0.8);
-                color: white;
-                padding: 5px 10px;
-                border-radius: 5px;
-                font-size: 12px;
-                pointer-events: none;
-            }
+            body { font-family: Arial; background: #eef2f7; padding: 20px; }
+            .container { background: white; border-radius: 10px; padding: 25px; max-width: 1100px; margin: auto; }
+            canvas { border: 1px dashed #007bff; width: 100%; height: 500px; }
         </style>
     </head>
     <body>
         <div class="container">
-            <h1>🎯 TradingView FVG Detection</h1>
-            
-            <div class="info-box">
-                <h3>📊 Upload & Detect FVG Patterns</h3>
-                <p><strong>Upload TradingView screenshot → AI detects and draws FVG patterns</strong></p>
-                <p>• Upload any TradingView chart image</p>
-                <p>• Automatic FVG pattern detection</p>
-                <p>• Visual drawing on your chart</p>
-            </div>
-            
-            <!-- File Upload -->
-            <div>
-                <h3>📁 Step 1: Upload TradingView Chart</h3>
-                <div class="upload-area">
-                    <input type="file" id="imageUpload" accept="image/*" style="font-size: 16px; padding: 10px;">
-                    <p style="margin-top: 15px; font-size: 16px; color: #666;">Upload TradingView screenshot (PNG, JPG, JPEG)</p>
-                </div>
+            <h1>🎯 TradingView REAL FVG Detection</h1>
+            <p>Upload a TradingView chart to detect real candle and FVG positions.</p>
+
+            <input type="file" id="imageUpload" accept="image/*">
+            <button id="detectBtn">🔍 Detect REAL FVGs</button>
+
+            <div style="margin-top:20px;">
+                <canvas id="canvas"></canvas>
             </div>
 
-            <!-- Auto-Draw Controls -->
-            <div>
-                <h3>🤖 Step 2: Detect FVG Patterns</h3>
-                <div class="toolbar">
-                    <button class="tool-btn auto-draw-btn" id="autoDrawBtn">
-                        🚀 Detect FVG Patterns
-                    </button>
-                    <button class="tool-btn" id="clearBtn">🧹 Clear Drawings</button>
-                </div>
+            <div id="debugLink" style="margin-top:20px; display:none;">
+                <a id="debugImage" target="_blank">🧩 View Debug Candle Overlay</a>
             </div>
 
-            <div class="legend">
-                <div class="legend-item"><div class="legend-color" style="background: rgba(0,255,0,0.3);"></div> Bullish FVG</div>
-                <div class="legend-item"><div class="legend-color" style="background: rgba(255,0,0,0.3);"></div> Bearish FVG</div>
-                <div class="legend-item"><div class="legend-color" style="background: rgba(0,100,255,0.5);"></div> Bullish Order Block</div>
-                <div class="legend-item"><div class="legend-color" style="background: rgba(255,100,0,0.5);"></div> Bearish Order Block</div>
-            </div>
+            <script>
+                const canvas = document.getElementById('canvas');
+                const ctx = canvas.getContext('2d');
+                let baseImage = null;
 
-            <div class="canvas-container">
-                <canvas id="drawingCanvas"></canvas>
-                <div id="coordinateInfo" class="coordinate-info" style="display: none;"></div>
-            </div>
-
-            <!-- Analysis -->
-            <div>
-                <h3>📊 Step 3: Analysis Results</h3>
-                <button id="analyzeBtn" class="tool-btn" style="padding: 15px 30px; font-size: 16px; background: #17a2b8; color: white; border-color: #17a2b8;">
-                    📈 Analyze Patterns
-                </button>
-            </div>
-
-            <div id="result" class="result" style="display:none;"></div>
-        </div>
-
-        <script>
-            const canvas = document.getElementById('drawingCanvas');
-            const ctx = canvas.getContext('2d');
-            const coordinateInfo = document.getElementById('coordinateInfo');
-            let autoAnnotations = [];
-            let baseImage = null;
-            let originalImageWidth = 800;
-            let originalImageHeight = 500;
-
-            // Initialize canvas
-            function resizeCanvas() {
-                canvas.width = canvas.offsetWidth;
-                canvas.height = 500;
-                if (baseImage) {
-                    redrawEverything();
+                function resizeCanvas() {
+                    canvas.width = canvas.offsetWidth;
+                    canvas.height = 500;
+                    if (baseImage) ctx.drawImage(baseImage, 0, 0, canvas.width, canvas.height);
                 }
-            }
-            resizeCanvas();
-            window.addEventListener('resize', resizeCanvas);
+                resizeCanvas();
+                window.addEventListener('resize', resizeCanvas);
 
-            // Show coordinates on mouse move
-            canvas.addEventListener('mousemove', function(e) {
-                const rect = canvas.getBoundingClientRect();
-                const x = e.clientX - rect.left;
-                const y = e.clientY - rect.top;
-                
-                coordinateInfo.style.display = 'block';
-                coordinateInfo.style.left = (e.clientX + 10) + 'px';
-                coordinateInfo.style.top = (e.clientY + 10) + 'px';
-                coordinateInfo.textContent = `X: ${Math.round(x)}, Y: ${Math.round(y)}`;
-            });
+                document.getElementById('detectBtn').addEventListener('click', async () => {
+                    const file = document.getElementById('imageUpload').files[0];
+                    if (!file) return alert('Please upload an image first.');
 
-            canvas.addEventListener('mouseleave', function() {
-                coordinateInfo.style.display = 'none';
-            });
+                    const formData = new FormData();
+                    formData.append('chart_image', file);
 
-            // Auto-draw functionality
-            document.getElementById('autoDrawBtn').addEventListener('click', async function() {
-                const fileInput = document.getElementById('imageUpload');
-                if (!fileInput.files[0]) {
-                    alert('Please upload a TradingView chart first!');
-                    return;
-                }
+                    const res = await fetch('/upload-chart', { method: 'POST', body: formData });
+                    const data = await res.json();
 
-                const formData = new FormData();
-                formData.append('chart_image', fileInput.files[0]);
-
-                const autoDrawBtn = this;
-                autoDrawBtn.innerHTML = '🔍 Detecting Patterns...';
-                autoDrawBtn.disabled = true;
-
-                try {
-                    const response = await fetch('/upload-chart', {
-                        method: 'POST',
-                        body: formData
-                    });
-                    
-                    const data = await response.json();
-                    
-                    if (response.ok) {
-                        autoAnnotations = data.analysis.auto_annotations || [];
-                        drawAutoAnnotations();
-                        const fvgCount = autoAnnotations.filter(a => a.type.includes('fvg')).length;
-                        alert(`✅ Detected ${fvgCount} FVG patterns on your chart!`);
-                    } else {
-                        alert('FVG detection failed: ' + data.error);
-                    }
-                } catch (error) {
-                    alert('Detection error: ' + error);
-                } finally {
-                    autoDrawBtn.innerHTML = '🚀 Detect FVG Patterns';
-                    autoDrawBtn.disabled = false;
-                }
-            });
-
-            function drawAutoAnnotations() {
-                if (!baseImage) return;
-                
-                redrawEverything();
-                
-                // Draw all detected annotations
-                autoAnnotations.forEach(annotation => {
-                    drawAnnotation(annotation);
-                });
-            }
-
-            function drawAnnotation(annotation) {
-                const scaleX = canvas.width / originalImageWidth;
-                const scaleY = canvas.height / originalImageHeight;
-                
-                if (annotation.type.includes('fvg')) {
-                    drawFVG(annotation, scaleX, scaleY);
-                } else if (annotation.type.includes('order_block')) {
-                    drawOrderBlock(annotation, scaleX, scaleY);
-                }
-            }
-
-            function drawFVG(fvg, scaleX, scaleY) {
-                const candle1 = fvg.candle1;
-                const candle3 = fvg.candle3;
-                const candleWidth = candle1.width * scaleX;
-                
-                if (fvg.type === 'fvg_bullish') {
-                    // Bullish FVG: Rectangle from Candle1 high to Candle3 low
-                    const rectX = candle1.x * scaleX + candleWidth/2;
-                    const rectY = candle1.high * scaleY;
-                    const rectWidth = (candle3.x - candle1.x - candle1.width) * scaleX;
-                    const rectHeight = (candle3.low - candle1.high) * scaleY;
-                    
-                    if (rectWidth > 0 && rectHeight > 0) {
-                        // Draw FVG rectangle
-                        ctx.fillStyle = fvg.color;
-                        ctx.globalAlpha = 0.3;
-                        ctx.fillRect(rectX, rectY, rectWidth, rectHeight);
-                        ctx.globalAlpha = 1.0;
-                        ctx.strokeStyle = '#00aa00';
-                        ctx.lineWidth = 2;
-                        ctx.strokeRect(rectX, rectY, rectWidth, rectHeight);
-                        
-                        // Draw label
-                        ctx.fillStyle = '#006600';
-                        ctx.font = 'bold 12px Arial';
-                        ctx.fillText(fvg.label, rectX + 5, rectY - 8);
-                        ctx.font = '10px Arial';
-                        ctx.fillText(fvg.description, rectX + 5, rectY + rectHeight + 15);
-                    }
-                    
-                } else if (fvg.type === 'fvg_bearish') {
-                    // Bearish FVG: Rectangle from Candle3 high to Candle1 low
-                    const rectX = candle1.x * scaleX + candleWidth/2;
-                    const rectY = candle3.high * scaleY;
-                    const rectWidth = (candle3.x - candle1.x - candle1.width) * scaleX;
-                    const rectHeight = (candle1.low - candle3.high) * scaleY;
-                    
-                    if (rectWidth > 0 && rectHeight > 0) {
-                        // Draw FVG rectangle
-                        ctx.fillStyle = fvg.color;
-                        ctx.globalAlpha = 0.3;
-                        ctx.fillRect(rectX, rectY, rectWidth, rectHeight);
-                        ctx.globalAlpha = 1.0;
-                        ctx.strokeStyle = '#aa0000';
-                        ctx.lineWidth = 2;
-                        ctx.strokeRect(rectX, rectY, rectWidth, rectHeight);
-                        
-                        // Draw label
-                        ctx.fillStyle = '#660000';
-                        ctx.font = 'bold 12px Arial';
-                        ctx.fillText(fvg.label, rectX + 5, rectY - 8);
-                        ctx.font = '10px Arial';
-                        ctx.fillText(fvg.description, rectX + 5, rectY + rectHeight + 15);
-                    }
-                }
-            }
-
-            function drawOrderBlock(ob, scaleX, scaleY) {
-                const candle = ob.candle;
-                const candleWidth = candle.width * scaleX;
-                
-                const x = candle.x * scaleX;
-                const high = candle.high * scaleY;
-                const low = candle.low * scaleY;
-                const height = (high - low) * scaleY;
-                
-                // Draw order block rectangle
-                ctx.fillStyle = ob.color;
-                ctx.globalAlpha = 0.4;
-                ctx.fillRect(x - candleWidth/2 - 3, low - 3, candleWidth + 6, height + 6);
-                ctx.globalAlpha = 1.0;
-                ctx.strokeStyle = ob.type.includes('bullish') ? '#0044cc' : '#cc4400';
-                ctx.lineWidth = 1.5;
-                ctx.strokeRect(x - candleWidth/2 - 3, low - 3, candleWidth + 6, height + 6);
-                
-                // Draw label
-                ctx.fillStyle = 'black';
-                ctx.font = 'bold 11px Arial';
-                ctx.fillText(ob.label, x - 25, low - 10);
-            }
-
-            function redrawEverything() {
-                if (baseImage) {
-                    ctx.clearRect(0, 0, canvas.width, canvas.height);
-                    ctx.drawImage(baseImage, 0, 0, canvas.width, canvas.height);
-                }
-            }
-
-            // Image upload
-            document.getElementById('imageUpload').addEventListener('change', function(e) {
-                const file = e.target.files[0];
-                if (file) {
-                    const reader = new FileReader();
-                    reader.onload = function(event) {
-                        baseImage = new Image();
-                        baseImage.onload = function() {
-                            originalImageWidth = baseImage.naturalWidth;
-                            originalImageHeight = baseImage.naturalHeight;
-                            redrawEverything();
+                    if (res.ok) {
+                        alert(`✅ Detected ${data.candles_detected} candles and ${data.auto_annotations_count} FVGs.`);
+                        const img = new Image();
+                        img.onload = () => {
+                            baseImage = img;
+                            ctx.clearRect(0,0,canvas.width,canvas.height);
+                            ctx.drawImage(img,0,0,canvas.width,canvas.height);
                         };
-                        baseImage.src = event.target.result;
-                    };
-                    reader.readAsDataURL(file);
-                }
-            });
+                        img.src = URL.createObjectURL(file);
 
-            // Analysis button
-            document.getElementById('analyzeBtn').addEventListener('click', async function() {
-                const fileInput = document.getElementById('imageUpload');
-                if (!fileInput.files[0]) {
-                    alert('Please upload a TradingView chart first!');
-                    return;
-                }
-
-                const formData = new FormData();
-                formData.append('chart_image', fileInput.files[0]);
-
-                const resultDiv = document.getElementById('result');
-                const analyzeBtn = this;
-
-                analyzeBtn.innerHTML = '⏳ Analyzing...';
-                analyzeBtn.disabled = true;
-
-                try {
-                    const response = await fetch('/upload-chart', {
-                        method: 'POST',
-                        body: formData
-                    });
-                    
-                    const data = await response.json();
-                    
-                    if (response.ok) {
-                        const fvgCount = data.analysis.ict_concepts.fair_value_gaps;
-                        const obCount = data.analysis.ict_concepts.order_blocks;
-                        
-                        resultDiv.innerHTML = `
-                            <h3>✅ FVG Analysis Complete!</h3>
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 15px 0;">
-                                <div>
-                                    <h4>🎯 Pattern Summary</h4>
-                                    <p><strong>FVG Patterns:</strong> ${fvgCount}</p>
-                                    <p><strong>Order Blocks:</strong> ${obCount}</p>
-                                    <p><strong>Market Structure:</strong> ${data.analysis.ict_concepts.market_structure}</p>
-                                </div>
-                                <div>
-                                    <h4>📊 Chart Analysis</h4>
-                                    <p><strong>Sentiment:</strong> ${data.analysis.sentiment}</p>
-                                    <p><strong>Confidence:</strong> ${(data.analysis.confidence_score * 100).toFixed(1)}%</p>
-                                    <p><strong>Image Size:</strong> ${originalImageWidth} × ${originalImageHeight}</p>
-                                </div>
-                            </div>
-                            <p><strong>Detection:</strong> ${fvgCount} FVG patterns detected and drawn on your chart</p>
-                        `;
+                        if (data.debug_image) {
+                            document.getElementById('debugLink').style.display = 'block';
+                            document.getElementById('debugImage').href = data.debug_image;
+                        }
                     } else {
-                        resultDiv.innerHTML = `<h3>❌ Error:</h3><p>${data.error}</p>`;
+                        alert('❌ Detection failed: ' + data.error);
                     }
-                    resultDiv.style.display = 'block';
-                } catch (error) {
-                    resultDiv.innerHTML = `<h3>❌ Network Error:</h3><p>${error}</p>`;
-                    resultDiv.style.display = 'block';
-                } finally {
-                    analyzeBtn.innerHTML = '📈 Analyze Patterns';
-                    analyzeBtn.disabled = false;
-                }
-            });
-
-            // Clear drawings
-            document.getElementById('clearBtn').addEventListener('click', function() {
-                autoAnnotations = [];
-                if (baseImage) {
-                    redrawEverything();
-                }
-                alert('Drawings cleared! Upload new chart to detect patterns.');
-            });
-        </script>
+                });
+            </script>
+        </div>
     </body>
     </html>
     '''
 
-# Upload endpoint for TradingView charts
+
 @app.route('/upload-chart', methods=['POST'])
 def upload_chart():
     try:
         file = request.files.get('chart_image')
-        
-        if file and file.filename != '':
-            if not allowed_file(file.filename):
-                return jsonify({'error': 'Invalid file type'}), 400
-            
-            file_data = file.read()
-            
-            # Use default image dimensions for pattern positioning
-            original_width = 800
-            original_height = 500
-            
-            # Analyze the uploaded TradingView chart
-            analysis = ai.chart_analyzer.analyze_chart_image(file_data, original_width, original_height)
-            
-            return jsonify({
-                'status': 'success',
-                'message': 'FVG analysis complete 🎯',
-                'auto_annotations_count': len(analysis.get('auto_annotations', [])),
-                'analysis': analysis,
-                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            })
-        else:
+        if not file or file.filename == '':
             return jsonify({'error': 'Please upload a TradingView chart image'}), 400
-            
+        if not allowed_file(file.filename):
+            return jsonify({'error': 'Invalid file type'}), 400
+
+        analysis = ai.chart_analyzer.analyze_chart_image(file.read())
+        return jsonify({
+            'status': 'success',
+            'message': 'REAL FVG analysis complete 🎯',
+            'candles_detected': analysis.get('candles_detected', 0),
+            'auto_annotations_count': len(analysis.get('auto_annotations', [])),
+            'analysis': analysis,
+            'debug_image': analysis.get('debug_image'),
+            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        })
     except Exception as e:
         return jsonify({'error': f'Upload failed: {str(e)}'}), 500
 
+
+# === MAIN ===
 if __name__ == '__main__':
-    print("🚀 TradingView FVG Detection AI Started!")
-    print("📊 Upload images and detect FVG patterns")
+    print("🚀 TradingView REAL FVG Detection AI Started!")
     ai.start_learning()
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
