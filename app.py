@@ -525,51 +525,61 @@ def web_draw():
                 const candle3 = fvg.candle3;
                 const candleWidth = candle1.width || 30;
                 
+                // Calculate the actual positions on canvas
+                const scaleX = canvas.width / 800; // Assuming original image width was 800
+                const scaleY = canvas.height / 500; // Assuming original image height was 500
+                
                 if (fvg.type === 'fvg_bullish') {
-                    // Bullish FVG: Rectangle from Candle 1 High to Candle 3 Low
-                    const rectX = candle1.x + candleWidth/2;
-                    const rectY = candle1.high;
-                    const rectWidth = candle3.x - candle1.x - candleWidth;
-                    const rectHeight = candle3.low - candle1.high;
+                    // Bullish FVG: Candle1 high < Candle3 low (gap between them)
+                    const rectX = candle1.x * scaleX + candleWidth/2;
+                    const rectY = candle1.high * scaleY;
+                    const rectWidth = (candle3.x - candle1.x - candleWidth) * scaleX;
+                    const rectHeight = (candle3.low - candle1.high) * scaleY;
                     
-                    // Draw FVG rectangle in ACTUAL TradingView position
-                    ctx.fillStyle = fvg.color;
-                    ctx.globalAlpha = 0.3;
-                    ctx.fillRect(rectX, rectY, rectWidth, rectHeight);
-                    ctx.globalAlpha = 1.0;
-                    ctx.strokeStyle = '#00aa00';
-                    ctx.lineWidth = 2;
-                    ctx.strokeRect(rectX, rectY, rectWidth, rectHeight);
-                    
-                    // Draw label with TradingView style
-                    ctx.fillStyle = '#006600';
-                    ctx.font = 'bold 11px Arial';
-                    ctx.fillText(fvg.label, rectX + 5, rectY - 8);
-                    ctx.font = '10px Arial';
-                    ctx.fillText(fvg.description, rectX + 5, rectY + rectHeight + 15);
+                    // Only draw if we have positive dimensions
+                    if (rectWidth > 0 && rectHeight > 0) {
+                        // Draw FVG rectangle
+                        ctx.fillStyle = fvg.color;
+                        ctx.globalAlpha = 0.3;
+                        ctx.fillRect(rectX, rectY, rectWidth, rectHeight);
+                        ctx.globalAlpha = 1.0;
+                        ctx.strokeStyle = '#00aa00';
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(rectX, rectY, rectWidth, rectHeight);
+                        
+                        // Draw label
+                        ctx.fillStyle = '#006600';
+                        ctx.font = 'bold 11px Arial';
+                        ctx.fillText(fvg.label, rectX + 5, rectY - 8);
+                        ctx.font = '10px Arial';
+                        ctx.fillText(fvg.description, rectX + 5, rectY + rectHeight + 15);
+                    }
                     
                 } else if (fvg.type === 'fvg_bearish') {
-                    // Bearish FVG: Rectangle from Candle 1 Low to Candle 3 High
-                    const rectX = candle1.x + candleWidth/2;
-                    const rectY = candle1.low;
-                    const rectWidth = candle3.x - candle1.x - candleWidth;
-                    const rectHeight = candle3.high - candle1.low;
+                    // Bearish FVG: Candle1 low > Candle3 high (gap between them)
+                    const rectX = candle1.x * scaleX + candleWidth/2;
+                    const rectY = candle3.high * scaleY;
+                    const rectWidth = (candle3.x - candle1.x - candleWidth) * scaleX;
+                    const rectHeight = (candle1.low - candle3.high) * scaleY;
                     
-                    // Draw FVG rectangle in ACTUAL TradingView position
-                    ctx.fillStyle = fvg.color;
-                    ctx.globalAlpha = 0.3;
-                    ctx.fillRect(rectX, rectY, rectWidth, rectHeight);
-                    ctx.globalAlpha = 1.0;
-                    ctx.strokeStyle = '#aa0000';
-                    ctx.lineWidth = 2;
-                    ctx.strokeRect(rectX, rectY, rectWidth, rectHeight);
-                    
-                    // Draw label with TradingView style
-                    ctx.fillStyle = '#660000';
-                    ctx.font = 'bold 11px Arial';
-                    ctx.fillText(fvg.label, rectX + 5, rectY - 8);
-                    ctx.font = '10px Arial';
-                    ctx.fillText(fvg.description, rectX + 5, rectY + rectHeight + 15);
+                    // Only draw if we have positive dimensions
+                    if (rectWidth > 0 && rectHeight > 0) {
+                        // Draw FVG rectangle
+                        ctx.fillStyle = fvg.color;
+                        ctx.globalAlpha = 0.3;
+                        ctx.fillRect(rectX, rectY, rectWidth, rectHeight);
+                        ctx.globalAlpha = 1.0;
+                        ctx.strokeStyle = '#aa0000';
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(rectX, rectY, rectWidth, rectHeight);
+                        
+                        // Draw label
+                        ctx.fillStyle = '#660000';
+                        ctx.font = 'bold 11px Arial';
+                        ctx.fillText(fvg.label, rectX + 5, rectY - 8);
+                        ctx.font = '10px Arial';
+                        ctx.fillText(fvg.description, rectX + 5, rectY + rectHeight + 15);
+                    }
                 }
             }
 
@@ -577,19 +587,29 @@ def web_draw():
                 const candle = ob.candle;
                 const candleWidth = candle.width || 30;
                 
-                // Draw order block rectangle around the candle (TradingView style)
+                // Scale coordinates to canvas size
+                const scaleX = canvas.width / 800;
+                const scaleY = canvas.height / 500;
+                
+                const x = candle.x * scaleX;
+                const high = candle.high * scaleY;
+                const low = candle.low * scaleY;
+                const width = candleWidth * scaleX;
+                const height = (high - low) * scaleY;
+                
+                // Draw order block rectangle
                 ctx.fillStyle = ob.color;
                 ctx.globalAlpha = 0.4;
-                ctx.fillRect(candle.x - candleWidth/2 - 3, candle.low - 3, candleWidth + 6, candle.high - candle.low + 6);
+                ctx.fillRect(x - width/2 - 3, low - 3, width + 6, height + 6);
                 ctx.globalAlpha = 1.0;
                 ctx.strokeStyle = ob.type.includes('bullish') ? '#0044cc' : '#cc4400';
                 ctx.lineWidth = 1.5;
-                ctx.strokeRect(candle.x - candleWidth/2 - 3, candle.low - 3, candleWidth + 6, candle.high - candle.low + 6);
+                ctx.strokeRect(x - width/2 - 3, low - 3, width + 6, height + 6);
                 
                 // Draw label
                 ctx.fillStyle = 'black';
                 ctx.font = 'bold 10px Arial';
-                ctx.fillText(ob.label, candle.x - 20, candle.low - 10);
+                ctx.fillText(ob.label, x - 20, low - 10);
             }
 
             function redrawEverything() {
