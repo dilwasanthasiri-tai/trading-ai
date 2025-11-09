@@ -46,6 +46,17 @@ class SelfLearningAI:
         except:
             pass
     
+    def get_ai_status(self):
+        """Get AI learning status for API"""
+        return {
+            'total_predictions': self.learning_data['total_predictions'],
+            'correct_predictions': self.learning_data['correct_predictions'],
+            'accuracy': round(self.learning_data['accuracy'], 1),
+            'confidence_boost': round(self.learning_data['confidence_boost'], 2),
+            'performance_trend': self.learning_data['performance_trend'],
+            'patterns_learned': len(self.learning_data['pattern_memory'])
+        }
+    
     def learn_from_result(self, features, prediction, actual_result, user_confidence):
         """AI learns from every prediction result"""
         self.learning_data['total_predictions'] += 1
@@ -191,19 +202,9 @@ class ICTMarketPredictor:
             'time_analysis': self.time_based_analysis(),
             'chart_analysis': self.chart_features or {'image_uploaded': False},
             'prediction': self.create_prediction(prediction, confidence, method),
-            'ai_learning': self.get_ai_status(),
+            'ai_learning': ai_brain.get_ai_status(),
             'trading_plan': self.create_trading_plan(prediction),
             'risk_management': self.calculate_risk(confidence)
-        }
-    
-    def get_ai_status(self):
-        """Get AI learning status"""
-        return {
-            'total_predictions': ai_brain.learning_data['total_predictions'],
-            'accuracy': round(ai_brain.learning_data['accuracy'], 1),
-            'confidence_boost': round(ai_brain.learning_data['confidence_boost'], 2),
-            'performance_trend': ai_brain.learning_data['performance_trend'],
-            'patterns_learned': len(ai_brain.learning_data['pattern_memory'])
         }
     
     def create_prediction(self, direction, confidence, method):
