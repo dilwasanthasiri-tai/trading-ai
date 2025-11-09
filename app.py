@@ -525,13 +525,17 @@ def web_draw():
                 const candle3 = fvg.candle3;
                 const candleWidth = candle1.width || 30;
                 
-                // Calculate the actual positions on canvas
-                const scaleX = canvas.width / 800; // Assuming original image width was 800
-                const scaleY = canvas.height / 500; // Assuming original image height was 500
+                // Get the actual image dimensions from the loaded image
+                const originalWidth = baseImage.naturalWidth || 800;
+                const originalHeight = baseImage.naturalHeight || 500;
+                
+                // Calculate scaling factors based on ACTUAL image size
+                const scaleX = canvas.width / originalWidth;
+                const scaleY = canvas.height / originalHeight;
                 
                 if (fvg.type === 'fvg_bullish') {
                     // Bullish FVG: Candle1 high < Candle3 low (gap between them)
-                    const rectX = candle1.x * scaleX + candleWidth/2;
+                    const rectX = candle1.x * scaleX + (candleWidth/2) * scaleX;
                     const rectY = candle1.high * scaleY;
                     const rectWidth = (candle3.x - candle1.x - candleWidth) * scaleX;
                     const rectHeight = (candle3.low - candle1.high) * scaleY;
@@ -557,7 +561,7 @@ def web_draw():
                     
                 } else if (fvg.type === 'fvg_bearish') {
                     // Bearish FVG: Candle1 low > Candle3 high (gap between them)
-                    const rectX = candle1.x * scaleX + candleWidth/2;
+                    const rectX = candle1.x * scaleX + (candleWidth/2) * scaleX;
                     const rectY = candle3.high * scaleY;
                     const rectWidth = (candle3.x - candle1.x - candleWidth) * scaleX;
                     const rectHeight = (candle1.low - candle3.high) * scaleY;
@@ -587,9 +591,13 @@ def web_draw():
                 const candle = ob.candle;
                 const candleWidth = candle.width || 30;
                 
-                // Scale coordinates to canvas size
-                const scaleX = canvas.width / 800;
-                const scaleY = canvas.height / 500;
+                // Get the actual image dimensions from the loaded image
+                const originalWidth = baseImage.naturalWidth || 800;
+                const originalHeight = baseImage.naturalHeight || 500;
+                
+                // Calculate scaling factors based on ACTUAL image size
+                const scaleX = canvas.width / originalWidth;
+                const scaleY = canvas.height / originalHeight;
                 
                 const x = candle.x * scaleX;
                 const high = candle.high * scaleY;
@@ -738,8 +746,6 @@ def upload_chart():
             
     except Exception as e:
         return jsonify({'error': f'Upload failed: {str(e)}'}), 500
-
-# Other endpoints remain the same...
 
 if __name__ == '__main__':
     print("🚀 TradingView FVG Detection AI Started!")
