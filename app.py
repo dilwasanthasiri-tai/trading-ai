@@ -4,7 +4,6 @@ import threading
 import time
 import os
 import json
-import random
 
 app = Flask(__name__)
 
@@ -425,10 +424,12 @@ def web_draw():
             let startX, startY;
             let annotations = [];
             let autoAnnotations = [];
+            let baseImage = null;
 
             function resizeCanvas() {
                 canvas.width = canvas.offsetWidth;
                 canvas.height = 500;
+                redrawEverything();
             }
             resizeCanvas();
             window.addEventListener('resize', resizeCanvas);
@@ -446,7 +447,7 @@ def web_draw():
                 }
             });
 
-            // Auto-draw functionality
+            // Auto-draw functionality - FIXED
             document.getElementById('autoDrawBtn').addEventListener('click', async function() {
                 const fileInput = document.getElementById('imageUpload');
                 if (!fileInput.files[0]) {
@@ -478,108 +479,85 @@ def web_draw():
             });
 
             function drawAutoAnnotations() {
-                // Clear and redraw base image
-                redrawBaseImage();
+                redrawEverything();
+            }
+
+            function redrawEverything() {
+                // Clear canvas
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                
+                // Draw base image
+                if (baseImage) {
+                    ctx.drawImage(baseImage, 0, 0, canvas.width, canvas.height);
+                }
                 
                 // Draw auto-annotations
                 autoAnnotations.forEach(annotation => {
-                    ctx.strokeStyle = annotation.color;
-                    ctx.fillStyle = annotation.color;
-                    ctx.lineWidth = annotation.width || 2;
-                    
-                    if (annotation.type.includes('fvg')) {
-                        // Draw FVG as filled rectangle
-                        ctx.globalAlpha = 0.3;
-                        ctx.fillRect(
-                            annotation.points[0].x, annotation.points[0].y,
-                            annotation.points[1].x - annotation.points[0].x,
-                            annotation.points[3].y - annotation.points[0].y
-                        );
-                        ctx.globalAlpha = 1.0;
-                        ctx.strokeRect(
-                            annotation.points[0].x, annotation.points[0].y,
-                            annotation.points[1].x - annotation.points[0].x,
-                            annotation.points[3].y - annotation.points[0].y
-                        );
-                        
-                        // Draw label
-                        ctx.fillStyle = 'black';
-                        ctx.font = '12px Arial';
-                        ctx.fillText(annotation.label, annotation.points[0].x, annotation.points[0].y - 5);
-                        
-                    } else if (annotation.type.includes('trendline')) {
-                        // Draw trendline
-                        ctx.beginPath();
-                        ctx.moveTo(annotation.points[0].x, annotation.points[0].y);
-                        ctx.lineTo(annotation.points[1].x, annotation.points[1].y);
-                        ctx.stroke();
-                        
-                        // Draw label
-                        ctx.fillStyle = annotation.color;
-                        ctx.font = '12px Arial';
-                        ctx.fillText(annotation.label, annotation.points[1].x + 5, annotation.points[1].y);
-                        
-                    } else if (annotation.type.includes('order_block')) {
-                        // Draw order block
-                        ctx.globalAlpha = 0.4;
-                        ctx.fillRect(
-                            annotation.points[0].x, annotation.points[0].y,
-                            annotation.points[1].x - annotation.points[0].x,
-                            annotation.points[3].y - annotation.points[0].y
-                        );
-                        ctx.globalAlpha = 1.0;
-                        ctx.strokeRect(
-                            annotation.points[0].x, annotation.points[0].y,
-                            annotation.points[1].x - annotation.points[0].x,
-                            annotation.points[3].y - annotation.points[0].y
-                        );
-                        
-                        // Draw label
-                        ctx.fillStyle = 'black';
-                        ctx.font = '12px Arial';
-                        ctx.fillText(annotation.label, annotation.points[0].x, annotation.points[0].y - 5);
-                    }
+                    drawAnnotation(annotation);
                 });
             }
 
-            function redrawBaseImage() {
-                const fileInput = document.getElementById('imageUpload');
-                if (fileInput.files[0]) {
-                    const reader = new FileReader();
-                    reader.onload = function(event) {
-                        const img = new Image();
-                        img.onload = function() {
-                            ctx.clearRect(0, 0, canvas.width, canvas.height);
-                            const ratio = Math.min(canvas.width / img.width, canvas.height / img.height);
-                            const width = img.width * ratio;
-                            const height = img.height * ratio;
-                            const x = (canvas.width - width) / 2;
-                            const y = (canvas.height - height) / 2;
-                            ctx.drawImage(img, x, y, width, height);
-                        };
-                        img.src = event.target.result;
-                    };
-                    reader.readAsDataURL(fileInput.files[0]);
+            function drawAnnotation(annotation) {
+                ctx.strokeStyle = annotation.color;
+                ctx.fillStyle = annotation.color;
+                ctx.lineWidth = annotation.width || 2;
+                ctx.globalAlpha = 1.0;
+                
+                if (annotation.type.includes('fvg')) {
+                    // Draw FVG as filled rectangle
+                    ctx.globalAlpha = 0.3;
+                    const width = annotation.points[1].x - annotation.points[0].x;
+                    const height = annotation.points[3].y - annotation.points[0].y;
+                    ctx.fillRect(annotation.points[0].x, annotation.points[0].y, width, height);
+                    ctx.globalAlpha = 1.0;
+                    ctx.strokeRect(annotation.points[0].x, annotation.points[0].y, width, height);
+                    
+                    // Draw label
+                    ctx.fillStyle = 'black';
+                    ctx.font = 'bold 14px Arial';
+                    ctx.fillText(annotation.label, annotation.points[0].x, annotation.points[0].y - 10);
+                    
+                } else if (annotation.type.includes('trendline')) {
+                    // Draw trendline
+                    ctx.beginPath();
+                    ctx.moveTo(annotation.points[0].x, annotation.points[0].y);
+                    ctx.lineTo(annotation.points[1].x, annotation.points[1].y);
+                    ctx.stroke();
+                    
+                    // Draw label
+                    ctx.fillStyle = annotation.color;
+                    ctx.font = 'bold 12px Arial';
+                    const midX = (annotation.points[0].x + annotation.points[1].x) / 2;
+                    const midY = (annotation.points[0].y + annotation.points[1].y) / 2;
+                    ctx.fillText(annotation.label, midX + 10, midY - 10);
+                    
+                } else if (annotation.type.includes('order_block')) {
+                    // Draw order block
+                    ctx.globalAlpha = 0.4;
+                    const width = annotation.points[1].x - annotation.points[0].x;
+                    const height = annotation.points[3].y - annotation.points[0].y;
+                    ctx.fillRect(annotation.points[0].x, annotation.points[0].y, width, height);
+                    ctx.globalAlpha = 1.0;
+                    ctx.strokeRect(annotation.points[0].x, annotation.points[0].y, width, height);
+                    
+                    // Draw label
+                    ctx.fillStyle = 'black';
+                    ctx.font = 'bold 12px Arial';
+                    ctx.fillText(annotation.label, annotation.points[0].x, annotation.points[0].y - 10);
                 }
             }
 
-            // Image upload
+            // Image upload - FIXED
             document.getElementById('imageUpload').addEventListener('change', function(e) {
                 const file = e.target.files[0];
                 if (file) {
                     const reader = new FileReader();
                     reader.onload = function(event) {
-                        const img = new Image();
-                        img.onload = function() {
-                            ctx.clearRect(0, 0, canvas.width, canvas.height);
-                            const ratio = Math.min(canvas.width / img.width, canvas.height / img.height);
-                            const width = img.width * ratio;
-                            const height = img.height * ratio;
-                            const x = (canvas.width - width) / 2;
-                            const y = (canvas.height - height) / 2;
-                            ctx.drawImage(img, x, y, width, height);
+                        baseImage = new Image();
+                        baseImage.onload = function() {
+                            redrawEverything();
                         };
-                        img.src = event.target.result;
+                        baseImage.src = event.target.result;
                     };
                     reader.readAsDataURL(file);
                 }
@@ -602,6 +580,7 @@ def web_draw():
                         ctx.font = '16px Arial';
                         ctx.fillText(text, startX, startY);
                         annotations.push({type: 'text', text, x: startX, y: startY});
+                        redrawEverything();
                     }
                 }
             }
@@ -613,9 +592,7 @@ def web_draw():
                 ctx.lineWidth = 2;
 
                 if (currentTool === 'line') {
-                    ctx.clearRect(0, 0, canvas.width, canvas.height);
-                    redrawBaseImage();
-                    drawAutoAnnotations();
+                    redrawEverything();
                     ctx.beginPath();
                     ctx.moveTo(startX, startY);
                     ctx.lineTo(e.offsetX, e.offsetY);
@@ -704,7 +681,7 @@ def web_draw():
             // Clear auto-draw
             document.getElementById('clearAutoDraw').addEventListener('click', function() {
                 autoAnnotations = [];
-                redrawBaseImage();
+                redrawEverything();
                 alert('Auto-draw cleared!');
             });
         </script>
