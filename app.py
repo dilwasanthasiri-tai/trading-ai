@@ -11,34 +11,49 @@ import pandas as pd
 
 app = Flask(__name__)
 
-# Try to import sklearn with fallback
-try:
-    from sklearn.ensemble import RandomForestClassifier
-    sklearn_available = True
-except ImportError:
-    sklearn_available = False
-    print("⚠️ scikit-learn not available, using fallback predictions")
-
 # Create uploads directory if it doesn't exist
 if not os.path.exists('static/uploads'):
     os.makedirs('static/uploads')
 
-# Initialize model and data
+# Simple prediction storage (no ML model)
 try:
-    if sklearn_available:
-        prediction_model = joblib.load('ict_prediction_model.pkl')
     historical_data = joblib.load('historical_predictions.pkl')
-    print("✅ Pre-trained model loaded successfully!")
+    print("✅ Historical data loaded successfully!")
 except:
-    if sklearn_available:
-        prediction_model = RandomForestClassifier(n_estimators=50, random_state=42)
     historical_data = []
-    print("🆕 New model initialized!")
+    print("🆕 New historical data initialized!")
+
+class SimplePredictor:
+    """Simple predictor without scikit-learn dependency"""
+    def __init__(self):
+        self.patterns = {
+            'bullish': ['hammer', 'bullish_engulfing', 'morning_star', 'piercing_line'],
+            'bearish': ['shooting_star', 'bearish_engulfing', 'evening_star', 'dark_cloud_cover']
+        }
+    
+    def predict(self, features):
+        """Simple rule-based prediction"""
+        green_pct = features.get('green_percentage', 0.5)
+        red_pct = features.get('red_percentage', 0.5)
+        trend = features.get('trend_direction', 0)
+        
+        # Simple rules based on color percentages and trend
+        if green_pct > red_pct + 0.2 and trend > 0:
+            return 'BULLISH', 0.85
+        elif red_pct > green_pct + 0.2 and trend < 0:
+            return 'BEARISH', 0.85
+        elif green_pct > red_pct:
+            return 'BULLISH', 0.7
+        elif red_pct > green_pct:
+            return 'BEARISH', 0.7
+        else:
+            return random.choice(['BULLISH', 'BEARISH']), 0.6
 
 class ICTMarketPredictor:
     def __init__(self, image_data=None):
         self.ict_levels = []
         self.image_data = image_data
+        self.simple_predictor = SimplePredictor()
         self.chart_features = self.extract_chart_features() if image_data else None
         
     def extract_chart_features(self):
@@ -91,18 +106,14 @@ class ICTMarketPredictor:
         try:
             if len(img_array.shape) == 3:  # Color image
                 if color == 'green':
-                    # Simple green detection
-                    green_pixels = np.sum((img_array[:,:,1] > img_array[:,:,0]) & 
-                                        (img_array[:,:,1] > img_array[:,:,2]))
-                    total_pixels = img_array.shape[0] * img_array.shape[1]
-                    return float(green_pixels / total_pixels)
+                    # Simple green detection (G > R and G > B)
+                    green_mask = (img_array[:,:,1] > img_array[:,:,0]) & (img_array[:,:,1] > img_array[:,:,2])
+                    return float(np.mean(green_mask))
                 else:  # red
-                    red_pixels = np.sum((img_array[:,:,0] > img_array[:,:,1]) & 
-                                      (img_array[:,:,0] > img_array[:,:,2]))
-                    total_pixels = img_array.shape[0] * img_array.shape[1]
-                    return float(red_pixels / total_pixels)
-            else:
-                return 0.5  # Grayscale image
+                    # Simple red detection (R > G and R > B)
+                    red_mask = (img_array[:,:,0] > img_array[:,:,1]) & (img_array[:,:,0] > img_array[:,:,2])
+                    return float(np.mean(red_mask))
+            return 0.5
         except Exception as e:
             print(f"Color detection error: {e}")
             return 0.5
@@ -115,9 +126,9 @@ class ICTMarketPredictor:
             
             print(f"📈 Green: {green_pct:.2f}, Red: {red_pct:.2f}")
             
-            if green_pct > red_pct + 0.1:
+            if green_pct > red_pct + 0.15:
                 return 1  # Bullish
-            elif red_pct > green_pct + 0.1:
+            elif red_pct > green_pct + 0.15:
                 return -1  # Bearish
             else:
                 return 0  # Neutral
@@ -230,28 +241,13 @@ class ICTMarketPredictor:
     
     def predict_next_candle(self):
         """Predict next candle direction using ICT concepts and image analysis"""
-        # Combine image analysis with ICT concepts
-        image_trend = self.chart_features.get('trend_direction', 0) if self.chart_features else 0
-        green_pct = self.chart_features.get('green_percentage', 0) if self.chart_features else 0
-        red_pct = self.chart_features.get('red_percentage', 0) if self.chart_features else 0
-        
-        print(f"🎯 Prediction inputs - Trend: {image_trend}, Green: {green_pct:.2f}, Red: {red_pct:.2f}")
-        
-        # ML-based prediction with fallback
-        ml_prediction = self.ml_predict()
-        
-        if ml_prediction == "BULLISH" or (image_trend > 0 and green_pct > red_pct):
-            direction = 'BULLISH'
-            probability = round(random.uniform(70, 95), 1)
-            reason = "Bullish chart pattern + ICT confluence"
-        elif ml_prediction == "BEARISH" or (image_trend < 0 and red_pct > green_pct):
-            direction = 'BEARISH'
-            probability = round(random.uniform(70, 95), 1)
-            reason = "Bearish chart pattern + ICT confluence"
+        if self.chart_features:
+            direction, probability = self.simple_predictor.predict(self.chart_features)
+            reason = f"Chart analysis: {direction} pattern detected"
         else:
             direction = random.choice(['BULLISH', 'BEARISH'])
-            probability = round(random.uniform(60, 80), 1)
-            reason = "Mixed signals - ICT analysis dominant"
+            probability = round(random.uniform(60, 85), 1)
+            reason = "ICT analysis based prediction"
         
         return {
             'direction': direction,
@@ -262,39 +258,8 @@ class ICTMarketPredictor:
                 'secondary': round(random.uniform(160, 164), 2) if direction == 'BULLISH' else round(random.uniform(140, 144), 2)
             },
             'triggers': ['Chart pattern confirmation', 'ICT level break'],
-            'ml_confidence': ml_prediction
+            'prediction_method': 'Rule-based + ICT Analysis'
         }
-    
-    def ml_predict(self):
-        """Machine learning prediction with fallback"""
-        if not sklearn_available or len(historical_data) < 5:
-            return random.choice(['BULLISH', 'BEARISH'])
-        
-        try:
-            # Prepare features for ML model
-            df = pd.DataFrame(historical_data)
-            
-            # Train model if we have enough data
-            if len(df) > 10:
-                available_features = [col for col in ['probability', 'green_percentage', 'red_percentage', 'trend_direction'] if col in df.columns]
-                if available_features and 'actual_direction' in df.columns:
-                    X = df[available_features]
-                    y = df['actual_direction']
-                    prediction_model.fit(X, y)
-            
-            # Make prediction
-            current_features = [
-                random.uniform(0.5, 0.9),
-                self.chart_features.get('green_percentage', 0) if self.chart_features else 0,
-                self.chart_features.get('red_percentage', 0) if self.chart_features else 0,
-                self.chart_features.get('trend_direction', 0) if self.chart_features else 0
-            ]
-            
-            prediction = prediction_model.predict([current_features])[0]
-            return prediction
-        except Exception as e:
-            print(f"ML prediction error: {e}")
-            return random.choice(['BULLISH', 'BEARISH'])
     
     def create_trading_plan(self):
         """Create complete trading plan"""
@@ -319,27 +284,25 @@ class ICTMarketPredictor:
             'market_condition': random.choice(['TRENDING', 'RANGING', 'VOLATILE'])
         }
 
-def save_model():
-    """Save the ML model and historical data"""
+def save_data():
+    """Save historical data"""
     try:
-        if sklearn_available:
-            joblib.dump(prediction_model, 'ict_prediction_model.pkl')
         joblib.dump(historical_data, 'historical_predictions.pkl')
-        print("💾 Model saved successfully!")
+        print("💾 Data saved successfully!")
     except Exception as e:
-        print(f"Error saving model: {e}")
+        print(f"Error saving data: {e}")
 
 @app.route('/')
 def home():
     return jsonify({
         "message": "🤖 ICT Market Predictor with Image Analysis",
         "status": "ACTIVE ✅", 
-        "version": "2.0",
+        "version": "3.0 - No ML Dependencies",
         "deployment": "Render Ready",
-        "ml_available": sklearn_available,
         "features": [
             "Image-based Candlestick Analysis",
             "Complete ICT Analysis",
+            "Rule-based Prediction Engine",
             "Order Blocks & FVGs", 
             "Real-time Predictions"
         ],
@@ -357,9 +320,9 @@ def health_check():
     return jsonify({
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "ml_available": sklearn_available,
         "samples_count": len(historical_data),
-        "upload_dir_exists": os.path.exists('static/uploads')
+        "upload_dir_exists": os.path.exists('static/uploads'),
+        "prediction_engine": "Rule-based (No ML)"
     })
 
 @app.route('/analyze', methods=['POST'])
@@ -380,7 +343,7 @@ def complete_analysis():
             'status': 'success',
             'analysis': analysis,
             'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            'analysis_method': 'COMPLETE_ICT_WITH_IMAGE'
+            'analysis_method': 'ICT_WITH_IMAGE_ANALYSIS'
         })
     except Exception as e:
         print(f"❌ Analysis error: {e}")
@@ -407,7 +370,7 @@ def quick_prediction():
 
 @app.route('/feedback', methods=['POST'])
 def feedback():
-    """Receive feedback for self-learning"""
+    """Receive feedback for learning"""
     global historical_data
     
     try:
@@ -415,22 +378,19 @@ def feedback():
         if not data or 'actual_direction' not in data:
             return jsonify({'error': 'No actual_direction provided'}), 400
             
-        prediction_data = {
-            'probability': data.get('probability', 0.5),
-            'green_percentage': data.get('green_percentage', 0),
-            'red_percentage': data.get('red_percentage', 0),
-            'trend_direction': data.get('trend_direction', 0),
+        feedback_data = {
+            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             'actual_direction': data['actual_direction'],
-            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            'user_comment': data.get('comment', '')
         }
         
-        if prediction_data['actual_direction'] in ['BULLISH', 'BEARISH']:
-            historical_data.append(prediction_data)
-            save_model()
+        if feedback_data['actual_direction'] in ['BULLISH', 'BEARISH']:
+            historical_data.append(feedback_data)
+            save_data()
             
             return jsonify({
                 'status': 'success',
-                'message': 'Feedback received for self-learning',
+                'message': 'Feedback received',
                 'total_samples': len(historical_data)
             })
         else:
@@ -543,6 +503,9 @@ def web_analyzer():
         <div class="container">
             <h1>🎯 ICT Market Predictor with Image Analysis</h1>
             <p><strong>Upload Candlestick Chart Image for AI-Powered ICT Analysis</strong></p>
+            <p style="background: #e7f3ff; padding: 10px; border-radius: 5px;">
+                ✅ <strong>Version 3.0</strong> - No ML Dependencies - Fast & Reliable
+            </p>
             
             <div class="upload-area">
                 <input type="file" id="imageUpload" accept="image/*" style="display: none;">
@@ -652,7 +615,7 @@ def web_analyzer():
                             <div>
                                 <p><strong>Probability:</strong> ${prediction.probability}%</p>
                                 <p><strong>Reason:</strong> ${prediction.reason}</p>
-                                <p><strong>ML Confidence:</strong> ${prediction.ml_confidence}</p>
+                                <p><strong>Method:</strong> ${prediction.prediction_method}</p>
                             </div>
                             <div>
                                 <p><strong>Immediate Target:</strong> ${prediction.targets.immediate}</p>
@@ -679,8 +642,25 @@ def web_analyzer():
                     </div>
 
                     <div class="section">
-                        <h2>🤖 SELF-LEARNING FEEDBACK</h2>
-                        <p>Help improve the AI by providing feedback:</p>
+                        <h2>📈 TRADING PLAN</h2>
+                        <div class="grid-3">
+                            <div>
+                                <p><strong>Entry Strategy:</strong> ${analysis.trading_plan.entry_strategy}</p>
+                                <p><strong>Entry Price:</strong> ${analysis.trading_plan.entry_price}</p>
+                            </div>
+                            <div>
+                                <p><strong>Stop Loss:</strong> ${analysis.trading_plan.stop_loss}</p>
+                                <p><strong>Position Size:</strong> ${analysis.trading_plan.position_size}</p>
+                            </div>
+                            <div>
+                                <p><strong>Risk/Reward:</strong> ${analysis.trading_plan.risk_reward}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <h2>🤖 FEEDBACK</h2>
+                        <p>Help improve the system by providing feedback:</p>
                         <div class="grid-2">
                             <button onclick="sendFeedback('BULLISH')" style="padding: 15px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px;">
                                 ✅ Prediction was CORRECT (Bullish)
@@ -702,15 +682,12 @@ def web_analyzer():
                         },
                         body: JSON.stringify({
                             actual_direction: actualDirection,
-                            probability: 0.8,
-                            green_percentage: 0.6,
-                            red_percentage: 0.4,
-                            trend_direction: 1
+                            comment: 'User feedback from web interface'
                         })
                     });
                     
                     if (response.ok) {
-                        alert('✅ Feedback received! AI model updated.');
+                        alert('✅ Feedback received! Thank you.');
                     } else {
                         alert('❌ Error sending feedback.');
                     }
@@ -725,9 +702,8 @@ def web_analyzer():
 
 if __name__ == '__main__':
     print("🚀 ICT Market Predictor Started Successfully!")
-    print("📸 Features: Image Analysis + ICT + Self-Learning AI")
+    print("📸 Features: Image Analysis + ICT Analysis + Rule-based Prediction")
     print("🌐 Ready for Render Deployment")
-    print(f"🤖 ML Available: {sklearn_available}")
     print("📁 Upload directory created:", os.path.exists('static/uploads'))
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
