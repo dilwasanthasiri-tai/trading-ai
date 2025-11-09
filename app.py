@@ -7,10 +7,17 @@ import numpy as np
 from PIL import Image
 import io
 import joblib
-from sklearn.ensemble import RandomForestClassifier
 import pandas as pd
 
 app = Flask(__name__)
+
+# Try to import sklearn with fallback
+try:
+    from sklearn.ensemble import RandomForestClassifier
+    sklearn_available = True
+except ImportError:
+    sklearn_available = False
+    print("⚠️ scikit-learn not available, using fallback predictions")
 
 # Create uploads directory if it doesn't exist
 if not os.path.exists('static/uploads'):
@@ -18,11 +25,13 @@ if not os.path.exists('static/uploads'):
 
 # Initialize model and data
 try:
-    prediction_model = joblib.load('ict_prediction_model.pkl')
+    if sklearn_available:
+        prediction_model = joblib.load('ict_prediction_model.pkl')
     historical_data = joblib.load('historical_predictions.pkl')
     print("✅ Pre-trained model loaded successfully!")
 except:
-    prediction_model = RandomForestClassifier(n_estimators=50, random_state=42)
+    if sklearn_available:
+        prediction_model = RandomForestClassifier(n_estimators=50, random_state=42)
     historical_data = []
     print("🆕 New model initialized!")
 
@@ -53,8 +62,8 @@ class ICTMarketPredictor:
                 features = {
                     'image_width': img_array.shape[1],
                     'image_height': img_array.shape[0],
-                    'avg_brightness': np.mean(img_array),
-                    'contrast': np.std(img_array),
+                    'avg_brightness': float(np.mean(img_array)),
+                    'contrast': float(np.std(img_array)),
                     'green_percentage': self.detect_color_percentage(img_array, 'green'),
                     'red_percentage': self.detect_color_percentage(img_array, 'red'),
                     'trend_direction': self.analyze_trend_direction(img_array),
@@ -80,18 +89,20 @@ class ICTMarketPredictor:
     def detect_color_percentage(self, img_array, color):
         """Detect color percentage in image"""
         try:
-            if color == 'green':
-                # Detect green pixels (G > R and G > B)
-                green_pixels = np.sum((img_array[:,:,1] > img_array[:,:,0] + 10) & 
-                                    (img_array[:,:,1] > img_array[:,:,2] + 10))
-                total_pixels = img_array.shape[0] * img_array.shape[1]
-                return float(green_pixels / total_pixels)
-            else:  # red
-                # Detect red pixels (R > G and R > B)
-                red_pixels = np.sum((img_array[:,:,0] > img_array[:,:,1] + 10) & 
-                                  (img_array[:,:,0] > img_array[:,:,2] + 10))
-                total_pixels = img_array.shape[0] * img_array.shape[1]
-                return float(red_pixels / total_pixels)
+            if len(img_array.shape) == 3:  # Color image
+                if color == 'green':
+                    # Simple green detection
+                    green_pixels = np.sum((img_array[:,:,1] > img_array[:,:,0]) & 
+                                        (img_array[:,:,1] > img_array[:,:,2]))
+                    total_pixels = img_array.shape[0] * img_array.shape[1]
+                    return float(green_pixels / total_pixels)
+                else:  # red
+                    red_pixels = np.sum((img_array[:,:,0] > img_array[:,:,1]) & 
+                                      (img_array[:,:,0] > img_array[:,:,2]))
+                    total_pixels = img_array.shape[0] * img_array.shape[1]
+                    return float(red_pixels / total_pixels)
+            else:
+                return 0.5  # Grayscale image
         except Exception as e:
             print(f"Color detection error: {e}")
             return 0.5
@@ -104,9 +115,9 @@ class ICTMarketPredictor:
             
             print(f"📈 Green: {green_pct:.2f}, Red: {red_pct:.2f}")
             
-            if green_pct > red_pct + 0.15:
+            if green_pct > red_pct + 0.1:
                 return 1  # Bullish
-            elif red_pct > green_pct + 0.15:
+            elif red_pct > green_pct + 0.1:
                 return -1  # Bearish
             else:
                 return 0  # Neutral
@@ -226,7 +237,7 @@ class ICTMarketPredictor:
         
         print(f"🎯 Prediction inputs - Trend: {image_trend}, Green: {green_pct:.2f}, Red: {red_pct:.2f}")
         
-        # ML-based prediction
+        # ML-based prediction with fallback
         ml_prediction = self.ml_predict()
         
         if ml_prediction == "BULLISH" or (image_trend > 0 and green_pct > red_pct):
@@ -255,10 +266,8 @@ class ICTMarketPredictor:
         }
     
     def ml_predict(self):
-        """Machine learning prediction based on historical data"""
-        global prediction_model
-        
-        if len(historical_data) < 5:
+        """Machine learning prediction with fallback"""
+        if not sklearn_available or len(historical_data) < 5:
             return random.choice(['BULLISH', 'BEARISH'])
         
         try:
@@ -313,7 +322,8 @@ class ICTMarketPredictor:
 def save_model():
     """Save the ML model and historical data"""
     try:
-        joblib.dump(prediction_model, 'ict_prediction_model.pkl')
+        if sklearn_available:
+            joblib.dump(prediction_model, 'ict_prediction_model.pkl')
         joblib.dump(historical_data, 'historical_predictions.pkl')
         print("💾 Model saved successfully!")
     except Exception as e:
@@ -322,14 +332,14 @@ def save_model():
 @app.route('/')
 def home():
     return jsonify({
-        "message": "🤖 ICT Market Predictor with Image Analysis & Self-Learning",
+        "message": "🤖 ICT Market Predictor with Image Analysis",
         "status": "ACTIVE ✅", 
         "version": "2.0",
         "deployment": "Render Ready",
+        "ml_available": sklearn_available,
         "features": [
             "Image-based Candlestick Analysis",
             "Complete ICT Analysis",
-            "Machine Learning Self-Learning",
             "Order Blocks & FVGs", 
             "Real-time Predictions"
         ],
@@ -337,7 +347,7 @@ def home():
             "/analyze": "POST - Upload image for analysis",
             "/predict": "POST - Quick prediction with image",
             "/web-analyzer": "GET - Web Interface with Image Upload",
-            "/feedback": "POST - Provide feedback for self-learning",
+            "/feedback": "POST - Provide feedback",
             "/health": "GET - Health check"
         }
     })
@@ -347,7 +357,7 @@ def health_check():
     return jsonify({
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "model_ready": len(historical_data) > 0,
+        "ml_available": sklearn_available,
         "samples_count": len(historical_data),
         "upload_dir_exists": os.path.exists('static/uploads')
     })
@@ -717,6 +727,7 @@ if __name__ == '__main__':
     print("🚀 ICT Market Predictor Started Successfully!")
     print("📸 Features: Image Analysis + ICT + Self-Learning AI")
     print("🌐 Ready for Render Deployment")
+    print(f"🤖 ML Available: {sklearn_available}")
     print("📁 Upload directory created:", os.path.exists('static/uploads'))
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
