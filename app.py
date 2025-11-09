@@ -3,7 +3,6 @@ from datetime import datetime
 import random
 import os
 import base64
-import numpy as np
 from PIL import Image
 import io
 
@@ -19,7 +18,7 @@ class ICTMarketPredictor:
         self.chart_features = self.extract_chart_features() if image_data else None
         
     def extract_chart_features(self):
-        """Extract features from uploaded chart image"""
+        """Extract basic features from uploaded chart image without numpy"""
         try:
             if self.image_data:
                 # Convert base64 to image
@@ -33,57 +32,57 @@ class ICTMarketPredictor:
                 if image.mode != 'RGB':
                     image = image.convert('RGB')
                 
-                img_array = np.array(image)
+                # Get basic image info without numpy
+                width, height = image.size
+                pixels = list(image.getdata())
                 
-                # Basic image analysis
+                # Calculate basic brightness (simplified)
+                total_brightness = sum(sum(pixel) for pixel in pixels) / 3
+                avg_brightness = total_brightness / len(pixels)
+                
+                # Simple color detection
+                green_count = 0
+                red_count = 0
+                for pixel in pixels:
+                    r, g, b = pixel
+                    if g > r and g > b:  # Green dominant
+                        green_count += 1
+                    elif r > g and r > b:  # Red dominant
+                        red_count += 1
+                
+                total_pixels = len(pixels)
+                green_percentage = green_count / total_pixels
+                red_percentage = red_count / total_pixels
+                
                 features = {
-                    'image_width': img_array.shape[1],
-                    'image_height': img_array.shape[0],
-                    'avg_brightness': float(np.mean(img_array)),
-                    'contrast': float(np.std(img_array)),
-                    'green_percentage': self.detect_color_percentage(img_array, 'green'),
-                    'red_percentage': self.detect_color_percentage(img_array, 'red'),
-                    'trend_direction': self.analyze_trend_direction(img_array),
-                    'volatility_indicator': float(np.std(img_array))
+                    'image_width': width,
+                    'image_height': height,
+                    'avg_brightness': avg_brightness,
+                    'green_percentage': green_percentage,
+                    'red_percentage': red_percentage,
+                    'trend_direction': self.analyze_trend_direction(green_percentage, red_percentage)
                 }
                 return features
         except Exception as e:
             print(f"Image processing error: {e}")
         
         return {
-            'image_width': 800, 'image_height': 600, 'avg_brightness': 127.5, 
-            'contrast': 50.0, 'green_percentage': 0.5, 'red_percentage': 0.5,
-            'trend_direction': 0, 'volatility_indicator': 50.0
+            'image_width': 800, 
+            'image_height': 600, 
+            'avg_brightness': 127.5, 
+            'green_percentage': 0.5, 
+            'red_percentage': 0.5,
+            'trend_direction': 0
         }
     
-    def detect_color_percentage(self, img_array, color):
-        """Detect color percentage in image"""
-        try:
-            if len(img_array.shape) == 3:
-                if color == 'green':
-                    green_mask = (img_array[:,:,1] > img_array[:,:,0]) & (img_array[:,:,1] > img_array[:,:,2])
-                    return float(np.mean(green_mask))
-                else:
-                    red_mask = (img_array[:,:,0] > img_array[:,:,1]) & (img_array[:,:,0] > img_array[:,:,2])
-                    return float(np.mean(red_mask))
-            return 0.5
-        except:
-            return 0.5
-    
-    def analyze_trend_direction(self, img_array):
-        """Analyze overall trend direction from image"""
-        try:
-            green_pct = self.detect_color_percentage(img_array, 'green')
-            red_pct = self.detect_color_percentage(img_array, 'red')
-            
-            if green_pct > red_pct + 0.15:
-                return 1
-            elif red_pct > green_pct + 0.15:
-                return -1
-            else:
-                return 0
-        except:
-            return random.choice([-1, 0, 1])
+    def analyze_trend_direction(self, green_pct, red_pct):
+        """Analyze overall trend direction from color percentages"""
+        if green_pct > red_pct + 0.15:
+            return 1  # Bullish
+        elif red_pct > green_pct + 0.15:
+            return -1  # Bearish
+        else:
+            return 0  # Neutral
     
     def complete_ict_analysis(self):
         """Complete ICT analysis with image features"""
@@ -92,7 +91,6 @@ class ICTMarketPredictor:
             'key_levels': self.find_ict_levels(),
             'order_blocks': self.find_order_blocks(),
             'fair_value_gaps': self.find_fvgs(),
-            'breaker_blocks': self.find_breaker_blocks(),
             'liquidity': self.analyze_liquidity(),
             'time_analysis': self.time_based_analysis(),
             'chart_analysis': self.chart_features or {},
@@ -107,8 +105,7 @@ class ICTMarketPredictor:
         return {
             'primary_trend': 'BULLISH' if trend_from_image > 0 else 'BEARISH' if trend_from_image < 0 else random.choice(['BULLISH', 'BEARISH']),
             'market_phase': random.choice(['ACCUMULATION', 'MARKUP', 'DISTRIBUTION', 'MARKDOWN']),
-            'structure_break': random.choice([True, False]),
-            'image_based_trend': trend_from_image
+            'structure_break': random.choice([True, False])
         }
     
     def find_ict_levels(self):
@@ -139,12 +136,6 @@ class ICTMarketPredictor:
             'bearish_fvgs': [
                 {'range': [round(random.uniform(156, 160), 2), round(random.uniform(152, 156), 2)], 'strength': 'HIGH'}
             ]
-        }
-    
-    def find_breaker_blocks(self):
-        return {
-            'bullish_breaker': round(random.uniform(154, 158), 2),
-            'bearish_breaker': round(random.uniform(148, 152), 2)
         }
     
     def analyze_liquidity(self):
@@ -182,7 +173,7 @@ class ICTMarketPredictor:
         return {
             'direction': direction,
             'probability': probability,
-            'reason': f'ICT Analysis + Chart Pattern: {direction} bias',
+            'reason': f'ICT Analysis: {direction} bias detected',
             'targets': {
                 'immediate': round(random.uniform(156, 160), 2) if direction == 'BULLISH' else round(random.uniform(144, 148), 2),
                 'secondary': round(random.uniform(160, 164), 2) if direction == 'BULLISH' else round(random.uniform(140, 144), 2)
@@ -210,7 +201,13 @@ def home():
     return jsonify({
         "message": "🤖 ICT Market Predictor with Image Analysis",
         "status": "ACTIVE ✅", 
-        "version": "4.0 - Production Ready",
+        "version": "5.0 - Ultra Light",
+        "features": [
+            "Image Upload & Analysis",
+            "Complete ICT Analysis", 
+            "Real-time Predictions",
+            "Trading Plans"
+        ],
         "endpoints": {
             "/analyze": "POST - Upload image for analysis",
             "/predict": "POST - Quick prediction",
@@ -222,7 +219,8 @@ def home():
 def health_check():
     return jsonify({
         "status": "healthy",
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
+        "version": "5.0"
     })
 
 @app.route('/analyze', methods=['POST'])
@@ -319,9 +317,8 @@ def web_analyzer():
             .prediction-bullish { background: #d4edda; border-color: #28a745; }
             .prediction-bearish { background: #f8d7da; border-color: #dc3545; }
             .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-            .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; }
             @media (max-width: 768px) {
-                .grid-2, .grid-3 { grid-template-columns: 1fr; }
+                .grid-2 { grid-template-columns: 1fr; }
             }
             #preview { 
                 max-width: 100%; 
@@ -349,6 +346,9 @@ def web_analyzer():
         <div class="container">
             <h1>🎯 ICT Market Predictor</h1>
             <p><strong>Upload Candlestick Chart Image for Analysis</strong></p>
+            <p style="background: #e7f3ff; padding: 10px; border-radius: 5px;">
+                ✅ <strong>Version 5.0</strong> - Ultra Light & Fast
+            </p>
             
             <div class="upload-area">
                 <input type="file" id="imageUpload" accept="image/*" style="display: none;">
@@ -362,13 +362,13 @@ def web_analyzer():
 
             <div style="text-align: center;">
                 <button class="analyze-btn" onclick="runImageAnalysis()" id="analyzeBtn" disabled>
-                    🤖 ANALYZE CHART
+                    🤖 ANALYZE WITH ICT THEORIES
                 </button>
             </div>
 
             <div id="loading" style="display: none; text-align: center; padding: 20px;">
                 <div class="loading-spinner"></div>
-                <h3>Analyzing Chart Image...</h3>
+                <h3>Analyzing Chart Image & Market Structure...</h3>
             </div>
 
             <div id="results" style="display: none;"></div>
@@ -449,14 +449,28 @@ def web_analyzer():
 
                     <div class="section">
                         <h2>📊 CHART ANALYSIS</h2>
-                        <div class="grid-3">
+                        <div class="grid-2">
                             <div>
-                                <p><strong>Trend:</strong> ${analysis.chart_analysis.trend_direction > 0 ? 'BULLISH' : analysis.chart_analysis.trend_direction < 0 ? 'BEARISH' : 'NEUTRAL'}</p>
+                                <p><strong>Image Size:</strong> ${analysis.chart_analysis.image_width} x ${analysis.chart_analysis.image_height}</p>
                                 <p><strong>Green Candles:</strong> ${(analysis.chart_analysis.green_percentage * 100).toFixed(1)}%</p>
                             </div>
                             <div>
                                 <p><strong>Red Candles:</strong> ${(analysis.chart_analysis.red_percentage * 100).toFixed(1)}%</p>
                                 <p><strong>Confidence:</strong> ${analysis.risk_management.confidence_score}%</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <h2>📈 TRADING PLAN</h2>
+                        <div class="grid-2">
+                            <div>
+                                <p><strong>Entry Strategy:</strong> ${analysis.trading_plan.entry_strategy}</p>
+                                <p><strong>Entry Price:</strong> ${analysis.trading_plan.entry_price}</p>
+                            </div>
+                            <div>
+                                <p><strong>Stop Loss:</strong> ${analysis.trading_plan.stop_loss}</p>
+                                <p><strong>Risk/Reward:</strong> ${analysis.trading_plan.risk_reward}</p>
                             </div>
                         </div>
                     </div>
@@ -468,6 +482,7 @@ def web_analyzer():
     '''
 
 if __name__ == '__main__':
-    print("🚀 ICT Market Predictor Started!")
+    print("🚀 ICT Market Predictor Started Successfully!")
+    print("✅ Version 5.0 - Ultra Light (No Numpy)")
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
