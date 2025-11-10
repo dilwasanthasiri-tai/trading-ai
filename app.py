@@ -1,5 +1,25 @@
+import os
 import cv2
 import numpy as np
+from flask import Flask, render_template, request, jsonify
+from werkzeug.utils import secure_filename
+import logging
+
+# Initialize Flask app
+app = Flask(__name__)
+app.config['SECRET_KEY'] = 'your-secret-key-here'
+app.config['UPLOAD_FOLDER'] = 'static/uploads'
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
+
+# Ensure upload directory exists
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Allowed file extensions
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp'}
 
 class TradingSignalAnalyzer:
     def analyze_chart(self, image):
@@ -23,7 +43,8 @@ class TradingSignalAnalyzer:
                 "trend_confidence": trend_confidence,
                 "price_action": price_action,
                 "sentiment": sentiment,
-                "analysis_quality": "good" if confidence > 60 else "medium"
+                "analysis_quality": "good" if confidence > 60 else "medium",
+                "error": None
             }
 
         except Exception as e:
@@ -76,6 +97,9 @@ class TradingSignalAnalyzer:
     def analyze_price_action(self, candles):
         """Basic market condition based on candle heights"""
         heights = [c[3] for c in candles]
+        if len(heights) == 0:
+            return "unclear"
+            
         if max(heights) / np.mean(heights) > 2:
             return "trending"
         elif np.std(heights) < 3:
@@ -126,3 +150,53 @@ class TradingSignalAnalyzer:
         elif score <= -2.0: return "STRONG SELL 🔴", min(90, base_conf + 20)
         elif score <= -1.0: return "SELL 🔴", min(85, base_conf + 15)
         else: return "HOLD ⚪", max(50, base_conf - 10)
+
+def allowed_file(filename):
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/analyze', methods=['POST'])
+def analyze_chart():
+    try:
+        # Check if a file was uploaded
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file uploaded'}), 400
+        
+        file = request.files['file']
+        
+        # Check if file is selected
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        if file and allowed_file(file.filename):
+            # Read and process the image
+            filestr = file.read()
+            npimg = np.frombuffer(filestr, np.uint8)
+            image = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
+            
+            if image is None:
+                return jsonify({'error': 'Invalid image file'}), 400
+            
+            # Analyze the chart
+            analyzer = TradingSignalAnalyzer()
+            result = analyzer.analyze_chart(image)
+            
+            return jsonify(result)
+        else:
+            return jsonify({'error': 'File type not allowed'}), 400
+            
+    except Exception as e:
+        logger.error(f"Analysis error: {str(e)}")
+        return jsonify({'error': f'Analysis failed: {str(e)}'}), 500
+
+@app.route('/health')
+def health_check():
+    return jsonify({'status': 'healthy', 'message': 'Trading Chart Analyzer is running'})
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
