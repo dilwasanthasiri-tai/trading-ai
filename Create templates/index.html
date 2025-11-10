@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Trading Chart Analyzer</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .upload-area { border: 2px dashed #ccc; padding: 40px; text-align: center; margin: 20px 0; }
+        .result { margin-top: 20px; padding: 20px; border-radius: 5px; }
+        .buy { background-color: #e8f5e8; border: 1px solid #4caf50; }
+        .sell { background-color: #ffe8e8; border: 1px solid #f44336; }
+        .hold { background-color: #f0f0f0; border: 1px solid #9e9e9e; }
+    </style>
+</head>
+<body>
+    <h1>📈 Trading Chart Analyzer</h1>
+    
+    <div class="upload-area">
+        <h3>Upload Candlestick Chart Image</h3>
+        <form id="uploadForm" enctype="multipart/form-data">
+            <input type="file" name="file" accept="image/*" required>
+            <br><br>
+            <button type="submit">Analyze Chart</button>
+        </form>
+    </div>
+
+    <div id="result" class="result" style="display: none;"></div>
+
+    <script>
+        document.getElementById('uploadForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData();
+            formData.append('file', document.querySelector('input[type=file]').files[0]);
+            
+            try {
+                const response = await fetch('/analyze', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                displayResult(result);
+                
+            } catch (error) {
+                displayResult({error: 'Analysis failed: ' + error.message});
+            }
+        });
+
+        function displayResult(result) {
+            const resultDiv = document.getElementById('result');
+            
+            if (result.error) {
+                resultDiv.innerHTML = `<h3>Error</h3><p>${result.error}</p>`;
+                resultDiv.className = 'result';
+                resultDiv.style.display = 'block';
+                return;
+            }
+
+            let signalClass = 'hold';
+            if (result.signal.includes('BUY')) signalClass = 'buy';
+            else if (result.signal.includes('SELL')) signalClass = 'sell';
+
+            resultDiv.innerHTML = `
+                <h3>Analysis Result</h3>
+                <div class="${signalClass}">
+                    <h2>${result.signal}</h2>
+                    <p><strong>Confidence:</strong> ${result.confidence}%</p>
+                    <p><strong>Trend:</strong> ${result.trend} (${result.trend_confidence}%)</p>
+                    <p><strong>Price Action:</strong> ${result.price_action}</p>
+                    <p><strong>Sentiment:</strong> ${result.sentiment}</p>
+                    <p><strong>Quality:</strong> ${result.analysis_quality}</p>
+                    ${result.candles_detected ? `<p><strong>Candles Detected:</strong> ${result.candles_detected}</p>` : ''}
+                </div>
+            `;
+            resultDiv.style.display = 'block';
+        }
+    </script>
+</body>
+</html>
