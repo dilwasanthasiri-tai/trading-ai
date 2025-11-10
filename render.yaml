@@ -1,10 +1,9 @@
 services:
   - type: web
-    name: ai-chart-analysis
+    name: trading-chart-analyzer
     env: python
-    plan: free
-    buildCommand: pip install --upgrade pip setuptools wheel && pip install -r requirements.txt
-    startCommand: gunicorn --bind 0.0.0.0:$PORT app:app
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
     envVars:
       - key: PYTHON_VERSION
         value: 3.9.18
